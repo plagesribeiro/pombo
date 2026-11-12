@@ -44,6 +44,7 @@ Me manda o que precisar: texto, áudio, foto ou arquivo. Eu rodo o Claude Code e
 - /status: mostra se estou ocupado
 - /rotinas: lista as rotinas agendadas
 - /rodar N: roda a rotina N agora
+- /atualizar: baixa a versão nova do Pombo, reinicia e avisa aqui
 
 Responder a uma mensagem minha continua a conversa daquela mensagem."""
 
@@ -52,6 +53,7 @@ COMANDOS = [
     {"command": "parar", "description": "interrompe o que estiver rodando"},
     {"command": "status", "description": "mostra se estou ocupado"},
     {"command": "rotinas", "description": "lista as rotinas agendadas"},
+    {"command": "atualizar", "description": "atualiza o Pombo e reinicia"},
     {"command": "ajuda", "description": "o que eu sei fazer"},
 ]
 
@@ -344,9 +346,25 @@ class BotRunner:
             else:
                 self.fila.put(("rotina", r["id"], True))
                 responder(self.tg, chat, f"⏰ Vou rodar **{r['nome']}** agora.", mid, log=self.log)
+        elif cmd == "/atualizar":
+            self.atualizar_pombo(chat, mid)
         else:
             return False
         return True
+
+    def atualizar_pombo(self, chat, mid):
+        """/atualizar: roda o `pombo atualizar` direto, sem passar pelo agente. Só o dono do bot pode."""
+        if chat != self.dono():
+            responder(self.tg, chat, "Só o dono deste bot pode atualizar o Pombo.", mid, log=self.log)
+            return
+        self.log("/atualizar pedido pelo Telegram")
+        try:
+            r = subprocess.run([sys.executable, SCRIPT, "atualizar", "--bot", self.id], capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=180)
+            saida = (r.stdout + r.stderr).strip() or f"terminou com o código {r.returncode}"
+        except (OSError, subprocess.TimeoutExpired) as e:
+            saida = f"Não consegui rodar o pombo atualizar: {e}"
+        responder(self.tg, chat, "🔄 " + saida, mid, log=self.log)
 
     # ---- trabalho
 

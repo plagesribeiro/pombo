@@ -203,6 +203,19 @@ class Atualizar(unittest.TestCase):
         self.assertEqual(self.a.versao(repo), self.a.versao(repo, c3))
         self.assertTrue(self.a.versao(repo).endswith(" c"))
 
+    def test_comando_atualizar(self):
+        from unittest import mock
+        from pombo import execucao
+        r = execucao.BotRunner("b", config.validar_bot({"pasta": "~", "usuarios_permitidos": [7, 8]}), config.carregar_geral(), "t")
+        feito = mock.Mock(stdout="Atualizado: a → b.", stderr="", returncode=0)
+        with mock.patch.object(execucao, "responder") as resp, mock.patch.object(execucao.subprocess, "run", return_value=feito) as run:
+            self.assertTrue(r.comando("/atualizar", 8, 1))  # liberado, mas não é o dono
+            run.assert_not_called()
+            self.assertIn("Só o dono", resp.call_args[0][2])
+            r.comando("/atualizar@meu_bot", 7, 2)
+        self.assertEqual(run.call_args[0][0][2:], ["atualizar", "--bot", "b"])
+        self.assertIn("Atualizado: a → b.", resp.call_args[0][2])
+
     def test_servico_espera_ficar_parado_e_avisa(self):
         import time
         from unittest import mock

@@ -136,6 +136,7 @@ O Pombo guarda o seu ID, e os próximos bots que você criar já nascem liberado
 | `/parar` | interrompe o que estiver rodando |
 | `/status` | mostra se o bot está ocupado e onde trabalha |
 | `/rotinas` e `/rodar N` | lista as rotinas e roda a rotina N agora |
+| `/atualizar` | baixa a versão nova do Pombo, reinicia e avisa quando voltar (só o dono do bot) |
 
 Para receber um arquivo, peça ("me manda o PDF da proposta"). O Claude responde com `ENVIAR_ARQUIVO: /caminho` e o
 Pombo manda o arquivo no chat.
@@ -297,7 +298,7 @@ voltam a funcionar na próxima mensagem.
 pombo atualizar
 ```
 
-Ou mande para qualquer bot: *"atualiza o Pombo"*. Funciona igual no Linux, no Mac e no Windows:
+Ou mande `/atualizar` para qualquer bot (só o dono do bot pode), ou peça: *"atualiza o Pombo"*. Funciona igual no Linux, no Mac e no Windows:
 
 1. Baixa a versão nova (`git pull`). Se não tiver nada novo, para por aí. Se o download falhar, nada é reiniciado.
 2. O serviço espera nenhum bot estar com pedido rodando (inclusive a conversa que pediu a atualização, que termina

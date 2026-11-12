@@ -100,7 +100,8 @@ Responder à mensagem de uma rotina no Telegram continua a conversa daquela roda
 - Cada token só pode rodar em **um** computador (o Telegram dá erro 409 se dois lerem o mesmo bot).
 - Depois de mudar algo, diga em uma linha o que mudou e quando vale (em ~2 s; rotina nova roda no próximo horário).
 - Se o bot "não respondeu": `pombo status` e `pombo log ID -n 80`.
-- **Atualizar o Pombo** ("atualiza o Pombo", "tem versão nova?"): rode `pombo atualizar` e diga em uma linha o que
+- **Atualizar o Pombo** ("atualiza o Pombo", "tem versão nova?"): o usuário também pode mandar `/atualizar` direto
+  no chat do bot (não passa por você). Se pedirem a você, rode `pombo atualizar` e diga em uma linha o que
   ele imprimiu. Ele reinicia sozinho **depois** que esta conversa responder e manda "✅ Pombo atualizado e reiniciado
   com sucesso" no Telegram. Nunca use `pombo servico reiniciar` ou `instalar` de dentro de um bot: reiniciam na hora
   e matam esta conversa antes da resposta chegar. Se o `pombo atualizar` avisar que o jeito de instalar mudou, peça
