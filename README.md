@@ -15,6 +15,23 @@ e-mail às 7h, 12h e 18h).
 
 ![O painel do Pombo](docs/painel.png)
 
+## Instalar com o Claude em 1 minuto
+
+Precisa só do [Claude Code](https://code.claude.com/docs/en/quickstart) instalado e logado no computador (no
+terminal ou no app Claude, na aba **Code**) e do Telegram no celular. Abra o Claude Code e cole:
+
+```text
+Instale o Pombo neste computador: clone https://github.com/plagesribeiro/pombo em ~/pombo, leia o INSTALAR.md e siga o roteiro. Me guie até eu conseguir conversar com o meu primeiro bot pelo Telegram.
+```
+
+O Claude instala o serviço, cria o bot e só para quando precisar de você: criar o bot no
+[@BotFather](https://t.me/BotFather), colar o token e mandar um "oi". Leva uns 5 minutos. Prefere fazer à mão? Veja
+a [instalação passo a passo](#instalação).
+
+> **English:** paste this into Claude Code: *"Install Pombo on this computer: clone
+> https://github.com/plagesribeiro/pombo into ~/pombo, read INSTALAR.md and follow it. Guide me until I can talk to
+> my first bot on Telegram."*
+
 ## Por que usar
 
 - **Roda no seu computador**, com o Claude Code que você já usa: os seus MCPs, skills, plugins e o seu login.
@@ -332,12 +349,9 @@ O Pombo é um projeto independente, sem relação com a Anthropic ou com o Teleg
 
 ## Contribuir
 
-Ideias, issues e pull requests são bem-vindos. Algumas direções abertas:
-
-- aprovar ações pelo celular, com botões no Telegram;
-- outros agentes, como o Codex;
-- outros canais, como o WhatsApp;
-- interface em inglês.
+Ideias, problemas e pull requests são bem-vindos. Veja o [CONTRIBUTING.md](CONTRIBUTING.md) e abra uma
+[issue](https://github.com/plagesribeiro/pombo/issues/new/choose). Falha de segurança vai pelo
+[relato privado](SECURITY.md).
 
 Para desenvolver:
 

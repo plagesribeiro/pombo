@@ -1,0 +1,32 @@
+name: 🐞 Problema
+description: Algo não funciona como deveria
+labels: ["problema"]
+body:
+  - type: markdown
+    attributes:
+      value: "**Não cole o token do bot, IDs do Telegram ou conteúdo pessoal.** Falha de segurança? Use o relato privado (veja o SECURITY.md)."
+  - type: textarea
+    id: oque
+    attributes:
+      label: O que aconteceu
+      description: O que você fez, o que esperava e o que aconteceu.
+    validations:
+      required: true
+  - type: dropdown
+    id: sistema
+    attributes:
+      label: Sistema
+      options: [Mac, Linux, Windows]
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão
+      description: "Saída de `git log --oneline -1` na pasta do Pombo e de `python3 --version`."
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "Últimas linhas de `pombo log ID -n 40` (sem token e sem dados pessoais)."
+      render: text

@@ -18,6 +18,8 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
 - `src/pombo/atualizar.py`: `pombo atualizar` (git pull + aviso em `atualizacao.json`); o serviço reinicia a si mesmo
   quando nenhum bot está ocupado (`os.execv`; no Windows sai com código 75 e a tarefa religa) e avisa no Telegram.
 - `src/pombo/migrar.py`: converte a configuração da versão antiga (um bot só) para `bots/<id>.json`.
+- `INSTALAR.md`: roteiro que o Claude Code segue para instalar o Pombo (o prompt do README aponta para ele).
+  Mudou a instalação, um comando ou um campo usado lá? Atualize o roteiro junto.
 - `skills/pombo/`: skill que ensina o Claude a configurar (instalada com `pombo skill instalar`).
 - `mac/lancador.c`: lançador do app no Mac (para o macOS dar acesso a Documentos uma vez só).
 - `tests/`: unidade (rápidos) e ponta a ponta (`telegram_falso.py` simula a API do Telegram).

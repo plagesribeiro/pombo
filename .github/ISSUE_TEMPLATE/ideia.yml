@@ -1,0 +1,16 @@
+name: 💡 Ideia
+description: Sugira algo novo ou uma melhoria
+labels: ["ideia"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: O que você quer resolver
+      description: 'Conte a situação. Ex.: "queria aprovar ações pelo celular antes de o Claude enviar um e-mail".'
+    validations:
+      required: true
+  - type: textarea
+    id: solucao
+    attributes:
+      label: Como você imagina
+      description: Opcional.
