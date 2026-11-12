@@ -292,6 +292,10 @@ def cmd_atualizar(a):
     from .servico import pid_rodando
     raiz = instalar.RAIZ
     if not atualizar.eh_git(raiz):
+        origem = instalar.clone_de_origem()
+        if origem:  # no Mac o serviço roda a cópia de dentro do app: quem atualiza é o clone de onde ela veio
+            import subprocess
+            sys.exit(subprocess.run([sys.executable, os.path.join(origem, "pombo")] + sys.argv[1:]).returncode)
         sair(f"esta cópia do Pombo ({raiz}) não é um clone do git, então não sei baixar a versão nova. "
              "Baixe à mão e rode: pombo servico instalar")
     de, antes = atualizar.commit(raiz), atualizar.versao(raiz)

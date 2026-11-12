@@ -118,6 +118,29 @@ def mac_copiar_codigo():
     if os.path.isdir(destino_pkg):
         shutil.rmtree(destino_pkg)
     os.replace(novo, destino_pkg)
+    with open(os.path.join(RECURSOS, ARQ_ORIGEM), "w", encoding="utf-8") as f:
+        f.write(RAIZ)  # o serviço roda a cópia: guarda de onde ela veio, para o /atualizar achar o clone do git
+
+
+ARQ_ORIGEM = "origem.txt"
+
+
+def clone_de_origem():
+    """Quando este código é a cópia de dentro do Pombo.app, devolve a pasta do clone do git de onde ela veio (ou None)."""
+    candidatos = []
+    try:
+        with open(os.path.join(RAIZ, ARQ_ORIGEM), encoding="utf-8") as f:
+            candidatos.append(f.read().strip())
+    except OSError:
+        pass
+    instalado = shutil.which("pombo")  # instalações antigas, sem origem.txt: o comando no PATH aponta para o clone
+    if instalado:
+        candidatos.append(os.path.dirname(os.path.realpath(instalado)))
+    for c in candidatos:
+        if c and os.path.realpath(c) != os.path.realpath(RAIZ) and os.path.isdir(os.path.join(c, ".git")) \
+                and os.path.isfile(os.path.join(c, "pombo")):
+            return c
+    return None
 
 
 def _mac_instalar():
