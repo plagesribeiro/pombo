@@ -63,6 +63,7 @@ comando, que valida antes de gravar.
 | `conectores_claude_ai` | `false` desliga os conectores do claude.ai (Gmail, Drive…) neste bot |
 | `mcps` | MCPs só deste bot, no formato do `.mcp.json`: `{"nome": {"command": "...", "args": []}}` ou `{"nome": {"type": "http", "url": "..."}}` |
 | `so_mcps_do_bot` | `true` ignora os outros MCPs e usa só os de `mcps` |
+| `chrome` | `true` liga o Claude in Chrome (`--chrome`): o bot usa o navegador. Precisa da extensão conectada na mesma conta do Claude Code |
 | `plugin_dirs` | pastas de plugin (skills só deste bot); caminho relativo vale a partir da pasta do bot |
 | `instrucoes` | texto que vai junto em toda conversa deste bot |
 | `instrucoes_arquivo` | arquivo .md lido a cada mensagem (editar não precisa reiniciar) |

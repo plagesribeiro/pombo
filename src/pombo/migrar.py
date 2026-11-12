@@ -49,6 +49,7 @@ def migrar(origem=None, bot_id="principal", usuario_nome=""):
         "tempo_maximo_min": old.get("tempo_maximo_min") or 25,
         "transcricao_cmd": old.get("transcricao_cmd") or [],
         "token_keychain": old.get("token_keychain") or "",
+        "chrome": bool(old.get("chrome")),
     })
     config.salvar_bot(bot_id, cfg)
     if old.get("token"):

@@ -286,4 +286,6 @@ def listar_mcps(bot_id):
         obs.append("Os conectores do claude.ai estão desligados para este bot.")
     if cfg["so_mcps_do_bot"]:
         obs.append("Este bot usa só os MCPs da lista dele; os de cima não entram nas conversas.")
+    if cfg["chrome"]:
+        obs.append("O Claude in Chrome está ligado: nas conversas, o bot também usa o seu Chrome.")
     return {"texto": texto or "(nenhum MCP)", "obs": obs}

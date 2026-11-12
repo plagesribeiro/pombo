@@ -206,6 +206,8 @@ Por padrão, cada bot enxerga as mesmas ferramentas do seu Claude Code. No paine
 - **desligar os conectores do claude.ai** (Gmail, Drive…) naquele bot;
 - **acrescentar MCPs só daquele bot** (mesmo formato do `.mcp.json`), e até **usar só esses**;
 - **carregar plugins só daquele bot** (skills que só fazem sentido no Telegram);
+- **ligar o Claude in Chrome**, para o bot usar o seu navegador (abrir sites, preencher, mandar print). Precisa da
+  [extensão Claude in Chrome](https://claude.ai/chrome) conectada na mesma conta do Claude Code;
 - ver **quais MCPs ele enxerga** (botão que roda `claude mcp list` na pasta do bot).
 
 Para separar contas de verdade (por exemplo, pessoal e trabalho), use **Avançado → Variáveis de ambiente**. Com

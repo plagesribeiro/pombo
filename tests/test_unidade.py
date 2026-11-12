@@ -151,6 +151,10 @@ class Motor(unittest.TestCase):
         self.assertEqual(json.load(open(arq)), {"mcpServers": {"x": {"command": "echo"}}})
         self.assertIn("--strict-mcp-config", cmd)
 
+    def test_chrome(self):
+        self.assertNotIn("--chrome", self.cmd()[0])
+        self.assertIn("--chrome", self.cmd(chrome=True)[0])
+
     def test_env_do_bot(self):
         _, env = self.cmd(env={"CLAUDE_CONFIG_DIR": "~/outra"})
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], os.path.expanduser("~/outra"))
@@ -162,11 +166,12 @@ class Migrar(unittest.TestCase):
         antigo = os.path.join(tempfile.mkdtemp(), "config.json")
         json.dump({"nome_maquina": "Mac", "token_keychain": "svc", "usuarios_permitidos": [7], "pasta_trabalho": "/tmp",
                    "permissoes": "bypassPermissions", "instrucoes_extra": "seja breve", "plugin_dirs": ["p"],
-                   "transcricao_cmd": ["x", "{arquivo}"]}, open(antigo, "w"))
+                   "transcricao_cmd": ["x", "{arquivo}"], "chrome": True}, open(antigo, "w"))
         json.dump({"offset": 55, "sessoes": {"7": {"id": "s", "ultima": 1}}}, open(os.path.join(os.path.dirname(antigo), "estado.json"), "w"))
         migrar(antigo, "migrado", "Ana")
         cfg = config.carregar_bot("migrado")
         self.assertEqual((cfg["pasta"], cfg["permissoes"], cfg["instrucoes"], cfg["token_keychain"]), ("/tmp", "total", "seja breve", "svc"))
+        self.assertTrue(cfg["chrome"])
         self.assertEqual(config.Estado("migrado").ler()["offset"], 55)
         self.assertEqual(config.carregar_geral()["usuario_nome"], "Ana")
         self.assertTrue(os.path.exists(antigo + ".migrado"))

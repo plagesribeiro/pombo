@@ -56,6 +56,7 @@ BOT_PADRAO = {
     "conectores_claude_ai": True,
     "mcps": {},
     "so_mcps_do_bot": False,
+    "chrome": False,
     "plugin_dirs": [],
     "instrucoes": "",
     "instrucoes_arquivo": "",
@@ -228,7 +229,7 @@ def validar_bot(cfg):
     for nome, srv in cfg["mcps"].items():
         if not isinstance(srv, dict) or not (srv.get("command") or srv.get("url")):
             raise ErroConfig(f'o MCP "{nome}" precisa de "command" (programa local) ou "url" (servidor remoto)')
-    for campo in ("ativo", "conectores_claude_ai", "so_mcps_do_bot"):
+    for campo in ("ativo", "conectores_claude_ai", "so_mcps_do_bot", "chrome"):
         cfg[campo] = bool(cfg[campo])
     for campo in ("nova_sessao_apos_horas", "tempo_maximo_min"):
         try:

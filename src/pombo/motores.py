@@ -27,6 +27,8 @@ def comando_claude(cfg, geral, bot_id, sistema, sessao):
         cmd += ["--model", cfg["modelo"]]
     if cfg.get("esforco"):
         cmd += ["--effort", cfg["esforco"]]
+    if cfg.get("chrome"):  # Claude in Chrome: precisa da extensão instalada e conectada no navegador
+        cmd += ["--chrome"]
     for p in cfg.get("plugin_dirs") or []:
         p = config.resolver(cfg, p)
         if os.path.isdir(p):

@@ -299,6 +299,7 @@ function desenharBot() {
     <h2>Ferramentas e MCPs</h2>
     <label class="tog"><input type="checkbox" data-c="conectores_claude_ai" data-t="bool" ${c.conectores_claude_ai ? "checked" : ""}><span>Conectores do claude.ai<small>Os conectores da conta do Claude logada neste computador (Gmail, Drive, Docs…).</small></span></label>
     <label class="tog"><input type="checkbox" data-c="so_mcps_do_bot" data-t="bool" ${c.so_mcps_do_bot ? "checked" : ""}><span>Usar só os MCPs deste bot<small>Ignora os MCPs do seu Claude Code e usa só os da lista abaixo.</small></span></label>
+    <label class="tog"><input type="checkbox" data-c="chrome" data-t="bool" ${c.chrome ? "checked" : ""}><span>Claude in Chrome<small>Deixa o bot usar o seu Chrome (abrir sites, clicar, tirar print). Precisa da extensão Claude in Chrome conectada na mesma conta do Claude Code.</small></span></label>
     <div class="grid2">
       <label class="f"><span class="l">MCPs só deste bot (JSON)</span><textarea class="code" data-c="mcps" data-t="json" placeholder='{"meu-servidor": {"command": "npx", "args": ["-y", "pacote"]}}'>${esc(Object.keys(c.mcps).length ? JSON.stringify(c.mcps, null, 2) : "")}</textarea></label>
       <label class="f"><span class="l">Plugins só deste bot (pastas, uma por linha)</span><textarea class="code" data-c="plugin_dirs" data-t="linhas" placeholder="plugins/telegram">${esc(c.plugin_dirs.join("\n"))}</textarea></label>
