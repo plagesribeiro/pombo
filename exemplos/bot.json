@@ -1,0 +1,36 @@
+{
+  "nome": "Pessoal",
+  "ativo": true,
+  "usuarios_permitidos": [123456789],
+  "pasta": "~/Documentos/pessoal",
+  "motor": "claude",
+  "modelo": "",
+  "esforco": "",
+  "permissoes": "auto",
+  "ferramentas_permitidas": [],
+  "ferramentas_negadas": ["Bash(rm -rf:*)"],
+  "conectores_claude_ai": false,
+  "mcps": {},
+  "so_mcps_do_bot": false,
+  "plugin_dirs": [],
+  "instrucoes": "Responda sempre sucinto e direto ao ponto.",
+  "instrucoes_arquivo": "",
+  "env": {},
+  "nova_sessao_apos_horas": 6,
+  "tempo_maximo_min": 25,
+  "transcricao_cmd": [],
+  "token_keychain": "",
+  "rotinas": [
+    {
+      "id": "triagem-email",
+      "nome": "Triagem do e-mail",
+      "ativa": true,
+      "horarios": ["07:00", "12:00", "18:00"],
+      "dias": [],
+      "prompt": "Leia os e-mails novos, separe o que precisa de ação e me mande um resumo curto.",
+      "conversa": "nova",
+      "silenciosa": true,
+      "tolerancia_min": 90
+    }
+  ]
+}

@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pombo</title>
+<style>
+:root{
+  --bg:#f3f5f8; --surface:#fff; --surface-2:#eaeef4; --ink:#16202b; --muted:#5a6676; --line:#d8dfe8;
+  --accent:#2457a8; --accent-ink:#fff; --accent-soft:#e1eaf8;
+  --ok:#16764f; --ok-soft:#dcf1e7; --warn:#986109; --warn-soft:#f8edd7; --bad:#b4372f; --bad-soft:#f9e1de; --off:#7a8694;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f141a; --surface:#161d25; --surface-2:#1d2630; --ink:#e3e9ef; --muted:#97a3b0; --line:#28333f;
+    --accent:#86acf5; --accent-ink:#0f141a; --accent-soft:#1c2b44;
+    --ok:#5fcfa5; --ok-soft:#14302a; --warn:#e2b25c; --warn-soft:#33281a; --bad:#f08a80; --bad-soft:#3a1f1d; --off:#8794a2;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased;padding-bottom:90px}
+button,input,select,textarea{font:inherit;color:inherit}
+code,.mono{font-family:var(--mono);font-size:.86em}
+a{color:var(--accent)}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px max(16px,env(safe-area-inset-left));background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.top h1{font-size:1.05rem;margin:0;font-weight:650;letter-spacing:-.01em}
+.top .maq{color:var(--muted);font-size:.9rem}
+.top .dir{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.p-ligado{background:var(--ok-soft);color:var(--ok)}
+.p-ocupado{background:var(--accent-soft);color:var(--accent)}
+.p-erro,.p-sem_token{background:var(--bad-soft);color:var(--bad)}
+.p-pausado,.p-parado,.p-ligando{background:var(--surface-2);color:var(--muted)}
+.banner{margin:16px max(16px,env(safe-area-inset-left)) 0;padding:12px 14px;border-radius:10px;background:var(--warn-soft);color:var(--ink);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+.wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px;padding:18px max(16px,env(safe-area-inset-left)) 0;max-width:1180px;margin:0 auto}
+aside{display:flex;flex-direction:column;gap:12px}
+.lista{display:flex;flex-direction:column;gap:4px}
+.bi{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:none;text-align:left;cursor:pointer;width:100%}
+.bi:hover{background:var(--surface)}
+.bi.sel{background:var(--surface);border-color:var(--line)}
+.bi b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bi small{grid-column:1/-1;color:var(--muted);font-size:.78rem;overflow-wrap:anywhere}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card h2{font-size:1rem;margin:0;font-weight:650}
+.card h2 small{font-weight:400;color:var(--muted);font-size:.85rem;margin-left:6px}
+.card .hint{color:var(--muted);font-size:.85rem;margin:0}
+main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cab h2{font-size:1.35rem;margin:0;font-weight:700;letter-spacing:-.01em}
+.cab .acoes{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.det{color:var(--muted);font-size:.88rem;overflow-wrap:anywhere}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:var(--muted);min-width:0}
+label.f > span.l{font-weight:600}
+input[type=text],input[type=number],input[type=password],select,textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;color:var(--ink);font-size:.92rem}
+textarea{min-height:76px;resize:vertical;font-family:var(--sans)}
+textarea.code{font-family:var(--mono);font-size:.82rem;min-height:90px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.invalido{border-color:var(--bad)!important;background:var(--bad-soft)!important}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 12px;font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.perigo{color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:default}
+.seg{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:max-content;max-width:100%}
+.seg button{border:0;border-right:1px solid var(--line);background:var(--surface);padding:6px 12px;font-size:.85rem;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.tog{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:.9rem}
+.tog input{margin-top:3px;width:16px;height:16px;accent-color:var(--accent)}
+.tog small{display:block;color:var(--muted);font-size:.8rem}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border-radius:999px;padding:3px 6px 3px 10px;font-size:.85rem;font-family:var(--mono)}
+.chip button{border:0;background:none;cursor:pointer;color:var(--muted);font-size:1rem;line-height:1;padding:0 4px}
+.linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.linha > input{flex:1;min-width:140px}
+.pedido{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-radius:8px;background:var(--warn-soft)}
+.pedido span{flex:1;min-width:160px;font-size:.88rem}
+.rot{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.rot.pausada{opacity:.75}
+.rot-cab{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rot-cab input[type=text]{flex:1;min-width:160px;font-weight:600}
+.rot-info{font-size:.8rem;color:var(--muted)}
+.dias{display:flex;gap:4px;flex-wrap:wrap}
+.dias button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:3px 8px;font-size:.8rem;cursor:pointer}
+.dias button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.84rem}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--surface-2);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.ok{color:var(--ok)} .bad{color:var(--bad)}
+pre.log{margin:0;max-height:340px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+details.card > summary{cursor:pointer;font-weight:650;list-style:none}
+details.card > summary::-webkit-details-marker{display:none}
+details.card > summary::after{content:" ▸";color:var(--muted)}
+details.card[open] > summary::after{content:" ▾"}
+.salvar{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;padding:12px max(16px,env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(0,0,0,.06)}
+.salvar .msg{margin-right:auto;font-size:.88rem}
+.toast{position:fixed;right:16px;bottom:84px;z-index:7;max-width:min(420px,calc(100vw - 32px));background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;font-size:.88rem;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.vazio{padding:40px 16px;text-align:center;color:var(--muted)}
+.erro-txt{color:var(--bad);font-size:.82rem}
+@media (max-width:760px){.wrap{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>🕊️ Pombo</h1>
+  <span class="maq" id="maq"></span>
+  <div class="dir"><span id="svc"></span><span class="maq mono" id="ver"></span></div>
+</div>
+<div id="banner"></div>
+<div class="wrap">
+  <aside>
+    <div class="lista" id="lista"></div>
+    <details class="card" id="novo">
+      <summary>+ Novo bot</summary>
+      <label class="f"><span class="l">Nome</span><input type="text" id="n-nome" placeholder="Trabalho"></label>
+      <label class="f"><span class="l">Id (vira o nome do arquivo)</span><input type="text" id="n-id" placeholder="trabalho"></label>
+      <label class="f"><span class="l">Pasta onde ele trabalha</span><input type="text" id="n-pasta" placeholder="~/projetos/trabalho"></label>
+      <button class="btn pri" id="n-criar">Criar bot</button>
+      <span class="erro-txt" id="n-erro"></span>
+    </details>
+    <details class="card" id="maquina">
+      <summary>Este computador</summary>
+      <label class="f"><span class="l">Nome do computador</span><input type="text" id="g-maq"></label>
+      <label class="f"><span class="l">Como os bots chamam você</span><input type="text" id="g-usu" placeholder="Ana"></label>
+      <label class="f"><span class="l">Seu ID do Telegram</span><input type="text" id="g-meuid" inputmode="numeric" placeholder="preenchido ao liberar você pela 1ª vez"><span>Bots novos já nascem liberados para este ID.</span></label>
+      <p class="hint">Configuração em <code id="g-base"></code></p>
+      <button class="btn" id="g-salvar">Salvar</button>
+    </details>
+  </aside>
+  <main id="main"><div class="vazio">Carregando…</div></main>
+</div>
+<div class="salvar" id="barra" hidden>
+  <span class="msg" id="barra-msg">Alterações não salvas</span>
+  <button class="btn" id="descartar">Descartar</button>
+  <button class="btn pri" id="salvar">Salvar</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clone = o => JSON.parse(JSON.stringify(o));
+const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const NOMES_SIT = {ligado:"ligado", ocupado:"trabalhando", erro:"com erro", sem_token:"sem token", pausado:"pausado", parado:"serviço parado", ligando:"ligando"};
+const DIAS_NOME = {seg:"seg",ter:"ter",qua:"qua",qui:"qui",sex:"sex",sab:"sáb",dom:"dom"};
+
+let E = null;            // /api/estado
+let sel = null;          // id do bot aberto
+let base = null;         // cfg do servidor quando abri/salvei
+let rasc = null;         // rascunho em edição
+let invalidos = new Set();
+let mudouFora = false;
+
+async function api(metodo, caminho, corpo) {
+  const r = await fetch(caminho, {method: metodo, headers: {"X-Pombo": "1", "Content-Type": "application/json"},
+                                  body: corpo === undefined ? undefined : JSON.stringify(corpo)});
+  let d = {};
+  try { d = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(d.erro || ("erro " + r.status));
+  return d;
+}
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 4200);
+}
+const sujo = () => rasc && base && !igual(rasc, base);
+function bot() { return E && E.bots.find(b => b.id === sel); }
+
+// ---------------------------------------------------------------- estado geral
+
+async function atualizar() {
+  try { E = await api("GET", "/api/estado"); }
+  catch (e) { $("#banner").innerHTML = `<div class="banner">Não consegui falar com o painel: ${esc(e.message)}</div>`; return; }
+  $("#maq").textContent = E.geral.nome_maquina;
+  $("#ver").textContent = "v" + E.versao;
+  $("#svc").innerHTML = E.servico ? `<span class="pill p-ligado">serviço ligado</span>` : `<span class="pill p-erro">serviço parado</span>`;
+  $("#banner").innerHTML = E.servico ? "" :
+    `<div class="banner"><b>O serviço não está rodando.</b> O que você mudar aqui fica salvo, mas os bots não respondem. Para ligar: <code>pombo servico instalar</code></div>`;
+  if (!$("#g-maq").matches(":focus")) $("#g-maq").value = E.geral.nome_maquina || "";
+  if (!$("#g-usu").matches(":focus")) $("#g-usu").value = E.geral.usuario_nome || "";
+  if (!$("#g-meuid").matches(":focus")) $("#g-meuid").value = E.geral.meu_id_telegram || "";
+  $("#g-base").textContent = E.base;
+  desenharLista();
+  if (!sel && E.bots.length) { const h = decodeURIComponent(location.hash.slice(1)); abrir(E.bots.some(b => b.id === h) ? h : E.bots[0].id); }
+  else if (!E.bots.length) { sel = null; base = rasc = null; $("#main").innerHTML = `<div class="card vazio">Nenhum bot ainda. Crie o primeiro em <b>+ Novo bot</b>.</div>`; }
+  else {
+    const b = bot();
+    if (!b) { abrir(E.bots[0].id); return; }
+    if (b.cfg && !igual(b.cfg, base)) {
+      if (!sujo()) { base = clone(b.cfg); rasc = clone(b.cfg); desenharBot(); }
+      else mudouFora = true;
+    } else atualizarStatus();
+    barra();
+  }
+}
+
+function desenharLista() {
+  $("#lista").innerHTML = E.bots.map(b => {
+    const s = b.estado.situacao;
+    const pasta = b.cfg ? b.cfg.pasta : "";
+    return `<button class="bi ${b.id === sel ? "sel" : ""}" data-abrir="${esc(b.id)}">
+      <b>${esc(b.cfg ? b.cfg.nome : b.id)}</b><span class="pill p-${esc(s)}">${esc(NOMES_SIT[s] || s)}</span>
+      <small>${esc(pasta)}</small></button>`;
+  }).join("");
+}
+
+function abrir(id) {
+  if (sujo() && !confirm("Há alterações não salvas neste bot. Descartar e abrir outro?")) return;
+  sel = id; mudouFora = false; invalidos.clear();
+  if (location.hash.slice(1) !== id) history.replaceState(null, "", "#" + encodeURIComponent(id));
+  const b = bot();
+  base = b && b.cfg ? clone(b.cfg) : null;
+  rasc = base ? clone(base) : null;
+  desenharLista(); desenharBot(); carregarHistorico();
+}
+
+// ---------------------------------------------------------------- um bot
+
+function situacaoHTML(b) {
+  const s = b.estado.situacao;
+  return `<span class="pill p-${esc(s)}">${esc(NOMES_SIT[s] || s)}</span>`;
+}
+
+function desenharBot() {
+  const b = bot();
+  if (!b) return;
+  if (!b.cfg) { $("#main").innerHTML = `<div class="card"><h2>${esc(b.id)}</h2><p class="erro-txt">${esc(b.estado.detalhe)}</p></div>`; return; }
+  const c = rasc, op = E.opcoes;
+  const perm = Object.entries(op.permissoes).map(([k]) => `<button data-perm="${k}" class="${c.permissoes === k ? "on" : ""}">${{total:"Total",auto:"Automática",lista:"Só a lista"}[k] || k}</button>`).join("");
+  $("#main").innerHTML = `
+  <div class="card">
+    <div class="cab">
+      <h2>${esc(c.nome || b.id)}</h2><span id="st">${situacaoHTML(b)}</span>
+      <div class="acoes">
+        <button class="btn" id="b-ativo">${base.ativo ? "Pausar" : "Ligar"}</button>
+        <button class="btn" id="b-teste">Mandar teste</button>
+        <button class="btn perigo" id="b-remover">Remover</button>
+      </div>
+    </div>
+    <div class="det" id="det"></div>
+  </div>
+
+  <div class="card">
+    <h2>Básico</h2>
+    <div class="grid2">
+      <label class="f"><span class="l">Nome</span><input type="text" data-c="nome" value="${esc(c.nome)}"></label>
+      <label class="f"><span class="l">Pasta onde ele trabalha</span><input type="text" data-c="pasta" value="${esc(c.pasta)}">
+        ${b.pasta_existe ? "" : `<span class="erro-txt">Essa pasta não existe neste computador.</span>`}</label>
+      <label class="f"><span class="l">Modelo</span><input type="text" data-c="modelo" list="modelos" value="${esc(c.modelo)}" placeholder="padrão do Claude Code"></label>
+      <label class="f"><span class="l">Esforço</span><select data-c="esforco">${["","low","medium","high","xhigh","max"].map(v => `<option value="${v}" ${c.esforco === v ? "selected" : ""}>${v || "padrão"}</option>`).join("")}</select></label>
+    </div>
+    <datalist id="modelos"><option value="opus"><option value="sonnet"><option value="haiku"><option value="fable"></datalist>
+  </div>
+
+  <div class="card">
+    <h2>Telegram</h2>
+    <div class="linha">
+      <span>Token: ${b.token_definido ? `<b class="ok">definido</b>` : `<b class="bad">falta</b>`}${c.token_keychain ? ` <small class="det">(Keychain: ${esc(c.token_keychain)})</small>` : ""}</span>
+      <input type="password" id="tok" placeholder="cole aqui o token do @BotFather" autocomplete="off">
+      <button class="btn" id="tok-salvar">Salvar token</button>
+    </div>
+    <div>
+      <div class="det" style="margin-bottom:6px">Quem pode falar com o bot (ID do Telegram):</div>
+      <div class="chips">
+        ${c.usuarios_permitidos.map((u, i) => `<span class="chip">${esc(u)}<button title="Tirar" data-tirar="${i}">×</button></span>`).join("") || `<span class="det">ninguém ainda</span>`}
+        <input type="text" id="usu-novo" placeholder="adicionar ID" style="width:150px"><button class="btn" id="usu-add">Adicionar</button>
+      </div>
+    </div>
+    ${b.desconhecidos.length ? `<div class="det">Tentaram falar com o bot sem estar liberados:</div>` + b.desconhecidos.map(d =>
+      `<div class="pedido"><span><b>${esc(d.nome || "sem nome")}</b> ${d.username ? "@" + esc(d.username) : ""} · ID <code>${esc(d.id)}</code>${d.texto ? ` · “${esc(d.texto)}”` : ""}</span>
+       <button class="btn pri" data-liberar="${esc(d.id)}">Liberar</button></div>`).join("") : ""}
+    <p class="hint">Bot novo: crie no @BotFather e cole o token acima. Se o seu ID ainda não estiver na lista, mande qualquer mensagem para o bot e toque em <b>Liberar</b> aqui.</p>
+  </div>
+
+  <div class="card">
+    <h2>Permissões</h2>
+    <div class="seg" id="perm">${perm}</div>
+    <p class="hint">${esc(op.permissoes[c.permissoes] || "")}</p>
+    <div class="grid2">
+      ${c.permissoes === "lista" ? `<label class="f"><span class="l">Ferramentas liberadas (uma por linha)</span><textarea class="code" data-c="ferramentas_permitidas" data-t="linhas" placeholder="Read&#10;Grep&#10;Bash(git status:*)&#10;mcp__composio">${esc(c.ferramentas_permitidas.join("\n"))}</textarea></label>` : ""}
+      <label class="f"><span class="l">Sempre negadas (uma por linha)</span><textarea class="code" data-c="ferramentas_negadas" data-t="linhas" placeholder="Bash(rm -rf:*)">${esc(c.ferramentas_negadas.join("\n"))}</textarea></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Ferramentas e MCPs</h2>
+    <label class="tog"><input type="checkbox" data-c="conectores_claude_ai" data-t="bool" ${c.conectores_claude_ai ? "checked" : ""}><span>Conectores do claude.ai<small>Os conectores da conta do Claude logada neste computador (Gmail, Drive, Docs…).</small></span></label>
+    <label class="tog"><input type="checkbox" data-c="so_mcps_do_bot" data-t="bool" ${c.so_mcps_do_bot ? "checked" : ""}><span>Usar só os MCPs deste bot<small>Ignora os MCPs do seu Claude Code e usa só os da lista abaixo.</small></span></label>
+    <div class="grid2">
+      <label class="f"><span class="l">MCPs só deste bot (JSON)</span><textarea class="code" data-c="mcps" data-t="json" placeholder='{"meu-servidor": {"command": "npx", "args": ["-y", "pacote"]}}'>${esc(Object.keys(c.mcps).length ? JSON.stringify(c.mcps, null, 2) : "")}</textarea></label>
+      <label class="f"><span class="l">Plugins só deste bot (pastas, uma por linha)</span><textarea class="code" data-c="plugin_dirs" data-t="linhas" placeholder="plugins/telegram">${esc(c.plugin_dirs.join("\n"))}</textarea></label>
+    </div>
+    <div class="linha"><button class="btn" id="ver-mcps">Ver os MCPs que ele enxerga</button><span class="det">Roda <code>claude mcp list</code> na pasta do bot (leva alguns segundos).</span></div>
+    <pre class="log" id="mcps-saida" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2>Instruções</h2>
+    <label class="f"><span class="l">Instruções só deste bot (vão junto em toda conversa)</span><textarea data-c="instrucoes" placeholder="Ex.: responda sempre sucinto; quando eu pedir áudio, gere com…">${esc(c.instrucoes)}</textarea></label>
+    <label class="f"><span class="l">Arquivo de instruções (opcional, lido a cada mensagem)</span><input type="text" data-c="instrucoes_arquivo" value="${esc(c.instrucoes_arquivo)}" placeholder="caminho a partir da pasta do bot"></label>
+    ${base.instrucoes_arquivo ? `<div class="linha"><button class="btn" id="arq-abrir">Editar o arquivo</button></div>
+      <div id="arq-box" hidden><textarea class="code" id="arq-texto" style="min-height:220px"></textarea><div class="linha" style="margin-top:6px"><button class="btn pri" id="arq-salvar">Salvar arquivo</button><span class="det" id="arq-cam"></span></div></div>` : ""}
+    <p class="hint">O <code>CLAUDE.md</code> da pasta também vale, como em qualquer sessão do Claude Code.</p>
+  </div>
+
+  <div class="card">
+    <h2>Rotinas <small>prompts que rodam sozinhos e mandam o resultado no Telegram</small></h2>
+    <div id="rotinas">${c.rotinas.map((r, i) => rotinaHTML(r, i, b)).join("") || `<p class="hint">Nenhuma rotina.</p>`}</div>
+    <div><button class="btn" id="rot-nova">+ Nova rotina</button></div>
+  </div>
+
+  <details class="card">
+    <summary>Avançado</summary>
+    <div class="grid2">
+      <label class="f"><span class="l">Conversa nova depois de parada por (horas)</span><input type="number" min="0.1" step="0.5" data-c="nova_sessao_apos_horas" data-t="num" value="${esc(c.nova_sessao_apos_horas)}"></label>
+      <label class="f"><span class="l">Tempo máximo por pedido (min)</span><input type="number" min="1" step="1" data-c="tempo_maximo_min" data-t="num" value="${esc(c.tempo_maximo_min)}"></label>
+      <label class="f"><span class="l">Token no Keychain do Mac (nome do serviço)</span><input type="text" data-c="token_keychain" value="${esc(c.token_keychain)}"></label>
+    </div>
+    <label class="f"><span class="l">Variáveis de ambiente (JSON)</span><textarea class="code" data-c="env" data-t="json" placeholder='{"CLAUDE_CONFIG_DIR": "~/.claude-trabalho"}'>${esc(Object.keys(c.env).length ? JSON.stringify(c.env, null, 2) : "")}</textarea></label>
+    <label class="f"><span class="l">Comando de transcrição de áudio (JSON, {arquivo} vira o caminho)</span><textarea class="code" data-c="transcricao_cmd" data-t="json" placeholder='["python3", "/caminho/transcrever.py", "{arquivo}"]'>${esc(c.transcricao_cmd.length ? JSON.stringify(c.transcricao_cmd) : "")}</textarea></label>
+  </details>
+
+  <div class="card">
+    <div class="linha"><h2 style="margin-right:auto">Últimas execuções</h2><button class="btn" id="hist-atualizar">Atualizar</button></div>
+    <div id="hist"><p class="hint">Carregando…</p></div>
+  </div>
+
+  <details class="card" id="log-box">
+    <summary>Log</summary>
+    <pre class="log" id="log"></pre>
+  </details>`;
+  atualizarStatus();
+  barra();
+}
+
+function rotinaHTML(r, i, b) {
+  const st = (b.rotinas_estado || {})[r.id] || {};
+  const salvo = base.rotinas.some(x => x.id === r.id);
+  const dias = Object.keys(DIAS_NOME).map(d => `<button data-r="${i}" data-dia="${d}" class="${(r.dias || []).includes(d) ? "on" : ""}">${DIAS_NOME[d]}</button>`).join("");
+  return `<div class="rot ${r.ativa ? "" : "pausada"}">
+    <div class="rot-cab">
+      <input type="text" data-r="${i}" data-c="nome" value="${esc(r.nome)}" placeholder="Nome da rotina">
+      <label class="tog"><input type="checkbox" data-r="${i}" data-c="ativa" data-t="bool" ${r.ativa ? "checked" : ""}><span>ativa</span></label>
+      <button class="btn pri" data-rodar="${esc(r.id)}" ${salvo ? "" : "disabled title='Salve antes de rodar'"}>Rodar agora</button>
+      <button class="btn perigo" data-rot-remover="${i}">Remover</button>
+    </div>
+    <div class="rot-info">${st.ultima_execucao ? `última: ${esc(st.ultima_execucao)} ${st.ok === false ? `<span class="bad">(erro)</span>` : `<span class="ok">ok</span>`}` : "ainda não rodou"}${st.proxima ? ` · próxima: ${esc(st.proxima)}` : ""} · id <code>${esc(r.id || "(gerado ao salvar)")}</code></div>
+    <div class="grid2">
+      <label class="f"><span class="l">Horários (HH:MM, separados por vírgula)</span><input type="text" data-r="${i}" data-c="horarios" data-t="horarios" value="${esc((r.horarios || []).join(", "))}" placeholder="07:00, 11:00, 17:00"></label>
+      <div class="f"><span class="l" style="font-size:.82rem;color:var(--muted);font-weight:600">Dias (nenhum marcado = todos)</span><div class="dias">${dias}</div></div>
+    </div>
+    <label class="f"><span class="l">O que fazer</span><textarea data-r="${i}" data-c="prompt" placeholder="Ex.: faça a triagem do e-mail seguindo o E-mail/CLAUDE.md e me mande o resumo.">${esc(r.prompt)}</textarea></label>
+    <div class="linha">
+      <label class="f" style="flex-direction:row;align-items:center;gap:8px"><span class="l">Conversa</span>
+        <select data-r="${i}" data-c="conversa" style="width:auto"><option value="nova" ${r.conversa === "nova" ? "selected" : ""}>nova a cada rodada</option><option value="continuar" ${r.conversa === "continuar" ? "selected" : ""}>continua a anterior</option></select></label>
+      <label class="tog"><input type="checkbox" data-r="${i}" data-c="silenciosa" data-t="bool" ${r.silenciosa ? "checked" : ""}><span>Não mandar nada quando não houver novidade</span></label>
+      <label class="f" style="flex-direction:row;align-items:center;gap:8px"><span class="l">Tolerância (min)</span><input type="number" min="0" data-r="${i}" data-c="tolerancia_min" data-t="int" value="${esc(r.tolerancia_min)}" style="width:80px"></label>
+    </div>
+  </div>`;
+}
+
+function atualizarStatus() {
+  const b = bot();
+  if (!b || !$("#st")) return;
+  $("#st").innerHTML = situacaoHTML(b);
+  const e = b.estado, partes = [];
+  if (e.username) partes.push(`<a href="https://t.me/${esc(e.username)}" target="_blank" rel="noopener">@${esc(e.username)}</a>`);
+  if (e.detalhe) partes.push(esc(e.detalhe));
+  if (e.fila) partes.push(`${e.fila} na fila`);
+  $("#det").innerHTML = partes.join(" · ") || (b.estado.situacao === "ligado" ? "pronto para receber mensagens" : "");
+}
+
+function barra() {
+  const b = $("#barra");
+  b.hidden = !sujo() && !mudouFora;
+  $("#salvar").disabled = invalidos.size > 0 || !sujo();
+  $("#barra-msg").innerHTML = mudouFora ? `<b>A configuração mudou fora do painel.</b> Salvar sobrescreve; descartar carrega a nova.`
+    : invalidos.size ? `<span class="bad">Corrija os campos em vermelho para salvar.</span>` : "Alterações não salvas";
+}
+
+async function carregarHistorico() {
+  if (!sel) return;
+  const id = sel;
+  try {
+    const [h, l] = await Promise.all([api("GET", `/api/bots/${encodeURIComponent(id)}/execucoes`), api("GET", `/api/bots/${encodeURIComponent(id)}/log?n=200`)]);
+    if (id !== sel || !$("#hist")) return;
+    $("#hist").innerHTML = h.execucoes.length ? `<div class="tw"><table><thead><tr><th>Quando</th><th>O quê</th><th>Duração</th><th>Custo</th><th>Resultado</th></tr></thead><tbody>${
+      h.execucoes.map(x => `<tr><td class="num">${esc(x.inicio)}</td><td>${x.tipo === "rotina" ? "⏰ " + esc(x.rotina) : "💬 " + esc((x.pedido || "").replace(/^Mensagem de [^:]*: /, "").slice(0, 60))}</td>
+        <td class="num">${esc(x.duracao_s)} s</td><td class="num">${x.custo_usd != null ? "US$ " + Number(x.custo_usd).toFixed(3) : "—"}</td>
+        <td>${x.ok ? `<span class="ok">ok</span>` : `<span class="bad">${esc(x.erro || "erro")}</span>`}${x.negadas && x.negadas.length ? ` · 🔒 ${esc(x.negadas.join(", "))}` : ""}<div class="det">${esc((x.resposta || "").slice(0, 160))}</div></td></tr>`).join("")
+    }</tbody></table></div>` : `<p class="hint">Nada ainda.</p>`;
+    const log = $("#log");
+    if (log) { const embaixo = log.scrollTop + log.clientHeight >= log.scrollHeight - 20; log.textContent = l.texto || "(vazio)"; if (embaixo) log.scrollTop = log.scrollHeight; }
+  } catch (e) {}
+}
+
+// ---------------------------------------------------------------- edição
+
+function lerCampo(el) {
+  const t = el.dataset.t, v = el.type === "checkbox" ? el.checked : el.value;
+  el.classList.remove("invalido"); invalidos.delete(el);
+  if (t === "bool") return v;
+  if (t === "num" || t === "int") { const n = Number(v); if (v === "" || isNaN(n)) { el.classList.add("invalido"); invalidos.add(el); throw 0; } return t === "int" ? Math.round(n) : n; }
+  if (t === "linhas") return v.split("\n").map(s => s.trim()).filter(Boolean);
+  if (t === "horarios") return v.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+  if (t === "json") {
+    if (!v.trim()) return el.dataset.c === "transcricao_cmd" ? [] : {};
+    try { return JSON.parse(v); } catch (e) { el.classList.add("invalido"); invalidos.add(el); throw 0; }
+  }
+  return v;
+}
+
+document.addEventListener("input", ev => {
+  const el = ev.target;
+  if (!rasc || !el.dataset || !el.dataset.c || !$("#main").contains(el)) return;
+  let v; try { v = lerCampo(el); } catch (e) { barra(); return; }
+  if (el.dataset.r !== undefined) rasc.rotinas[+el.dataset.r][el.dataset.c] = v;
+  else rasc[el.dataset.c] = v;
+  if (el.dataset.c === "ativa") el.closest(".rot").classList.toggle("pausada", !v);
+  barra();
+});
+
+document.addEventListener("click", async ev => {
+  const el = ev.target.closest("button,[data-abrir]");
+  if (!el) return;
+  const d = el.dataset;
+  try {
+    if (d.abrir) return abrir(d.abrir);
+    if (d.perm) { rasc.permissoes = d.perm; desenharBot(); return; }
+    if (d.dia) { const r = rasc.rotinas[+d.r]; r.dias = r.dias.includes(d.dia) ? r.dias.filter(x => x !== d.dia) : [...r.dias, d.dia]; el.classList.toggle("on"); barra(); return; }
+    if (d.tirar !== undefined) { rasc.usuarios_permitidos.splice(+d.tirar, 1); desenharBot(); return; }
+    if (d.liberar) { const r = await api("POST", `/api/bots/${sel}/liberar`, {usuario: d.liberar}); base.usuarios_permitidos = r.usuarios_permitidos; rasc.usuarios_permitidos = clone(r.usuarios_permitidos); toast("Liberado. Já pode conversar com o bot."); await atualizar(); desenharBot(); return; }
+    if (d.rodar) { await api("POST", `/api/bots/${sel}/rotinas/${encodeURIComponent(d.rodar)}/rodar`); toast("Rotina na fila. O resultado chega no Telegram."); return; }
+    if (d.rotRemover !== undefined) { if (!confirm("Remover esta rotina? (só vale depois de salvar)")) return; rasc.rotinas.splice(+d.rotRemover, 1); desenharBot(); return; }
+    switch (el.id) {
+      case "salvar": return salvar();
+      case "descartar": { const b = bot(); base = clone(b.cfg); rasc = clone(b.cfg); mudouFora = false; invalidos.clear(); desenharBot(); return; }
+      case "rot-nova": rasc.rotinas.push({id: "", nome: "", ativa: true, horarios: [], dias: [], prompt: "", conversa: "nova", silenciosa: false, tolerancia_min: 90}); desenharBot(); return;
+      case "usu-add": { const v = $("#usu-novo").value.trim(); if (!/^\d+$/.test(v)) return toast("O ID do Telegram é só número."); rasc.usuarios_permitidos.push(+v); desenharBot(); return; }
+      case "tok-salvar": { await api("POST", `/api/bots/${sel}/token`, {token: $("#tok").value}); toast("Token salvo. O bot liga em alguns segundos."); await atualizar(); desenharBot(); return; }
+      case "b-ativo": { const cfg = clone(bot().cfg); cfg.ativo = !cfg.ativo; await api("PUT", `/api/bots/${sel}`, {cfg}); base.ativo = cfg.ativo; rasc.ativo = cfg.ativo; toast(cfg.ativo ? "Bot ligado." : "Bot pausado."); await atualizar(); desenharBot(); return; }
+      case "b-teste": await api("POST", `/api/bots/${sel}/teste`); toast("Mensagem de teste enviada."); return;
+      case "b-remover": { if (!confirm(`Remover o bot "${bot().cfg.nome}"? A configuração e o token dele saem deste computador. A pasta de trabalho não é tocada.`)) return; await api("DELETE", `/api/bots/${sel}`); sel = null; base = rasc = null; toast("Bot removido."); return atualizar(); }
+      case "ver-mcps": { const o = $("#mcps-saida"); o.hidden = false; o.textContent = "Consultando…"; const r = await api("GET", `/api/bots/${sel}/mcps`); o.textContent = r.texto + (r.obs.length ? "\n\n" + r.obs.join("\n") : ""); return; }
+      case "arq-abrir": { const r = await api("GET", `/api/bots/${sel}/instrucoes-arquivo`); $("#arq-box").hidden = false; $("#arq-texto").value = r.texto; $("#arq-cam").textContent = r.caminho + (r.existe ? "" : " (será criado)"); return; }
+      case "arq-salvar": await api("PUT", `/api/bots/${sel}/instrucoes-arquivo`, {texto: $("#arq-texto").value}); toast("Arquivo salvo. Vale a partir da próxima mensagem."); return;
+      case "hist-atualizar": return carregarHistorico();
+      case "n-criar": {
+        $("#n-erro").textContent = "";
+        const nome = $("#n-nome").value.trim(), id = $("#n-id").value.trim(), pasta = $("#n-pasta").value.trim();
+        if (!nome || !pasta) { $("#n-erro").textContent = "Preencha o nome e a pasta."; return; }
+        try { const r = await api("POST", "/api/bots", {nome, id: id || undefined, pasta}); $("#novo").open = false; ["#n-nome", "#n-id", "#n-pasta"].forEach(s => $(s).value = ""); await atualizar(); abrir(r.id); toast("Bot criado. Agora cole o token do @BotFather."); }
+        catch (e) { $("#n-erro").textContent = e.message; }
+        return;
+      }
+      case "g-salvar": {
+        const meu = $("#g-meuid").value.trim();
+        if (meu && !/^\d+$/.test(meu)) return toast("O ID do Telegram é só número.");
+        await api("PUT", "/api/geral", {nome_maquina: $("#g-maq").value.trim(), usuario_nome: $("#g-usu").value.trim(), meu_id_telegram: meu ? +meu : 0});
+        toast("Salvo."); return atualizar();
+      }
+    }
+  } catch (e) { toast("Erro: " + e.message); }
+});
+
+$("#n-nome").addEventListener("input", () => {
+  $("#n-id").placeholder = $("#n-nome").value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "trabalho";
+});
+
+async function salvar() {
+  if (invalidos.size) return;
+  try {
+    const r = await api("PUT", `/api/bots/${sel}`, {cfg: rasc});
+    base = clone(r.cfg); rasc = clone(r.cfg); mudouFora = false;
+    toast("Salvo. Vale a partir da próxima mensagem.");
+    await atualizar(); desenharBot();
+  } catch (e) { $("#barra-msg").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+
+window.addEventListener("beforeunload", e => { if (sujo()) { e.preventDefault(); e.returnValue = ""; } });
+atualizar();
+setInterval(atualizar, 4000);
+setInterval(carregarHistorico, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+name: testes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unidade:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Testes de unidade
+        run: python -m unittest discover -s tests -p "test_unidade.py" -v
+      - name: A linha de comando abre
+        run: python pombo --help
