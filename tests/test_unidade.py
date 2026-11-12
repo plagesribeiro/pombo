@@ -158,6 +158,76 @@ class Motor(unittest.TestCase):
     def test_env_do_bot(self):
         _, env = self.cmd(env={"CLAUDE_CONFIG_DIR": "~/outra"})
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], os.path.expanduser("~/outra"))
+        self.assertTrue(env["POMBO_BOT"])  # `pombo atualizar` sabe de qual bot veio o pedido
+
+
+class Atualizar(unittest.TestCase):
+    def setUp(self):
+        from pombo import atualizar
+        self.a = atualizar
+        atualizar.apagar()
+
+    def test_decidir(self):
+        d = self.a.decidir
+        self.assertEqual(d(None, 100, True), "nada")
+        self.assertEqual(d({"quando": 50}, 100, False), "avisar")  # gravado antes de o processo subir
+        self.assertEqual(d({"quando": 150}, 100, False), "esperar")
+        self.assertEqual(d({"quando": 150}, 100, True), "reiniciar")
+
+    def test_mensagem(self):
+        m = self.a.mensagem({"antes": "a1 velho", "depois": "b2 novo"}, "Note")
+        self.assertIn("atualizado e reiniciado com sucesso em Note", m)
+        self.assertIn("b2 novo", m)
+        self.assertNotIn("Antes", self.a.mensagem({"antes": "b2", "depois": "b2"}, "Note"))
+        self.assertIn("pombo servico instalar", self.a.mensagem({"antes": "a", "depois": "b", "reinstalar": True}, "Note"))
+
+    def test_mudou_instalador(self):
+        import subprocess
+        repo = tempfile.mkdtemp()
+        git = lambda *x: subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *x],
+                                        check=True, capture_output=True)
+        git("init", "-q")
+        for nome in ("README.md", "src/pombo/instalar.py"):
+            os.makedirs(os.path.dirname(os.path.join(repo, nome)), exist_ok=True)
+            open(os.path.join(repo, nome), "w").write("1")
+        git("add", "README.md"); git("commit", "-qm", "a")
+        c1 = self.a.commit(repo)
+        open(os.path.join(repo, "README.md"), "w").write("2")
+        git("commit", "-qam", "b")
+        c2 = self.a.commit(repo)
+        git("add", "src"); git("commit", "-qm", "c")
+        c3 = self.a.commit(repo)
+        self.assertTrue(self.a.eh_git(repo))
+        self.assertFalse(self.a.mudou_instalador(repo, c1, c2))
+        self.assertTrue(self.a.mudou_instalador(repo, c2, c3))
+        self.assertEqual(self.a.versao(repo), self.a.versao(repo, c3))
+        self.assertTrue(self.a.versao(repo).endswith(" c"))
+
+    def test_servico_espera_ficar_parado_e_avisa(self):
+        import time
+        from unittest import mock
+        from pombo import servico
+        s = servico.Servico()
+        ocupado = mock.Mock(ocupado=True, fila=mock.Mock(empty=lambda: True))
+        s.runners = {"b": ocupado}
+        self.a.gravar(self.a.novo_marcador("a1", "b2", False, "b"))
+        with mock.patch.object(self.a, "reiniciar_processo") as reiniciar:
+            s.conferir_atualizacao()  # ocupado: espera
+            ocupado.ocupado = False
+            s.conferir_atualizacao()  # 1ª vez parado: ainda espera (pode ter acabado de sair da fila)
+            reiniciar.assert_not_called()
+            s.conferir_atualizacao()
+            reiniciar.assert_called_once()
+        # o processo novo sobe depois do aviso: manda o ✅ pelo bot que pediu e apaga o aviso
+        novo = servico.Servico()
+        novo.inicio = time.time() + 1
+        bot = mock.Mock(id="b", tg=object(), dono=lambda: 7)
+        novo.runners = {"b": bot}
+        with mock.patch("pombo.telegram.responder") as responder:
+            novo.conferir_atualizacao()
+        self.assertEqual(responder.call_args[0][1], 7)
+        self.assertIn("b2", responder.call_args[0][2])
+        self.assertIsNone(self.a.ler())
 
 
 class Migrar(unittest.TestCase):

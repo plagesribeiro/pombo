@@ -1,6 +1,6 @@
 ---
 name: pombo
-description: Use para ver ou mudar os bots do Pombo, os bots do Telegram que rodam o Claude Code neste computador - criar ou remover um bot, trocar a pasta, o token, quem pode falar com ele, permissões, MCPs, instruções, e criar, mudar, pausar ou rodar rotinas agendadas ("todo dia às 8h me manda..."). Gatilhos - "cria um bot", "muda o horário da rotina", "adiciona uma rotina", "pausa o bot", "libera a Ana no bot", "por que o bot não respondeu", "qual o status dos bots", "pombo".
+description: Use para ver ou mudar os bots do Pombo, os bots do Telegram que rodam o Claude Code neste computador - criar ou remover um bot, trocar a pasta, o token, quem pode falar com ele, permissões, MCPs, instruções, e criar, mudar, pausar ou rodar rotinas agendadas ("todo dia às 8h me manda..."). Gatilhos - "cria um bot", "muda o horário da rotina", "adiciona uma rotina", "pausa o bot", "libera a Ana no bot", "por que o bot não respondeu", "qual o status dos bots", "atualiza o pombo", "pombo".
 ---
 
 # Configurar o Pombo
@@ -34,6 +34,7 @@ pombo log ID -n 80                    # últimas linhas do log do bot
 pombo geral usuario_nome=Ana          # como os bots chamam o usuário
 pombo geral meu_id_telegram=123456789 # bots novos já nascem liberados para este ID
 pombo painel                          # endereço do painel web
+pombo atualizar                       # baixa a versão nova, reinicia sozinho quando ficar livre e avisa no Telegram
 ```
 
 Também dá para editar os arquivos direto (`bots/<id>.json`); o serviço recarrega sozinho. Prefira a linha de
@@ -99,3 +100,8 @@ Responder à mensagem de uma rotina no Telegram continua a conversa daquela roda
 - Cada token só pode rodar em **um** computador (o Telegram dá erro 409 se dois lerem o mesmo bot).
 - Depois de mudar algo, diga em uma linha o que mudou e quando vale (em ~2 s; rotina nova roda no próximo horário).
 - Se o bot "não respondeu": `pombo status` e `pombo log ID -n 80`.
+- **Atualizar o Pombo** ("atualiza o Pombo", "tem versão nova?"): rode `pombo atualizar` e diga em uma linha o que
+  ele imprimiu. Ele reinicia sozinho **depois** que esta conversa responder e manda "✅ Pombo atualizado e reiniciado
+  com sucesso" no Telegram. Nunca use `pombo servico reiniciar` ou `instalar` de dentro de um bot: reiniciam na hora
+  e matam esta conversa antes da resposta chegar. Se o `pombo atualizar` avisar que o jeito de instalar mudou, peça
+  ao usuário para rodar `pombo servico instalar` no terminal.

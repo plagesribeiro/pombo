@@ -15,6 +15,8 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
 - `src/pombo/rotinas.py`: quando uma rotina deve rodar (funções puras, testadas).
 - `src/pombo/painel.py` + `painel.html`: painel web (127.0.0.1) e a API que ele usa.
 - `src/pombo/cli.py`: linha de comando. `src/pombo/instalar.py`: systemd/launchd/Windows, comando no PATH, Tailscale e skill.
+- `src/pombo/atualizar.py`: `pombo atualizar` (git pull + aviso em `atualizacao.json`); o serviço reinicia a si mesmo
+  quando nenhum bot está ocupado (`os.execv`; no Windows sai com código 75 e a tarefa religa) e avisa no Telegram.
 - `src/pombo/migrar.py`: converte a configuração da versão antiga (um bot só) para `bots/<id>.json`.
 - `skills/pombo/`: skill que ensina o Claude a configurar (instalada com `pombo skill instalar`).
 - `mac/lancador.c`: lançador do app no Mac (para o macOS dar acesso a Documentos uma vez só).
@@ -31,5 +33,7 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
 - Mudou algo? Rode os testes:
   - `python3 -m unittest discover -s tests -p "test_unidade.py"`
   - `POMBO_E2E=1 python3 -m unittest tests.test_ponta_a_ponta -v` (Claude de verdade com haiku + Telegram falso)
-- Depois de mudar o código, `pombo servico reiniciar` (no Mac, `pombo servico instalar` de novo, porque o código vai
-  copiado para dentro do app). Reiniciar interrompe um pedido em andamento: confira com `pombo status` antes.
+- Para colocar código novo no ar (seu ou de um `git pull`): `pombo atualizar` (ou `pombo atualizar --sem-baixar` para
+  um código que você mudou aqui). Ele copia o código para o app no Mac, espera os bots ficarem parados, reinicia e
+  avisa no Telegram. Atualizar sem reiniciar não adianta. `pombo servico reiniciar`/`instalar` reiniciam na hora e
+  matam o pedido em andamento, inclusive a conversa de onde foram chamados: só pelo terminal.

@@ -41,6 +41,7 @@ def comando_claude(cfg, geral, bot_id, sistema, sessao):
             cmd += ["--strict-mcp-config"]
     env = dict(os.environ)
     env.pop("CLAUDECODE", None)  # o bot pode ter sido iniciado de dentro de uma sessão do Claude Code
+    env["POMBO_BOT"] = bot_id  # `pombo atualizar` usa para avisar no chat deste bot
     if not cfg["conectores_claude_ai"]:
         env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
     for k, v in (cfg.get("env") or {}).items():

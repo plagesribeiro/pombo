@@ -15,6 +15,7 @@ Configuração: {base}
 
 Uso comum:
   pombo servico instalar            deixa o serviço rodando sozinho (liga com o computador)
+  pombo atualizar                   baixa a versão nova, reinicia sozinho e avisa no Telegram
   pombo painel                      endereço do painel (ou abre um, se o serviço estiver parado)
   pombo status                      como está cada bot
 
@@ -286,6 +287,39 @@ def cmd_servico(a):
     acoes[a.acao]()
 
 
+def cmd_atualizar(a):
+    from . import atualizar, instalar
+    from .servico import pid_rodando
+    raiz = instalar.RAIZ
+    if not atualizar.eh_git(raiz):
+        sair(f"esta cópia do Pombo ({raiz}) não é um clone do git, então não sei baixar a versão nova. "
+             "Baixe à mão e rode: pombo servico instalar")
+    de, antes = atualizar.commit(raiz), atualizar.versao(raiz)
+    if a.sem_baixar:
+        a.reiniciar = True
+    else:
+        ok, erro = atualizar.baixar(raiz)
+        if not ok:
+            sair(f"Não consegui baixar a versão nova (git pull). Nada foi reiniciado.\n{erro}")
+    para, depois = atualizar.commit(raiz), atualizar.versao(raiz)
+    if de == para and not a.reiniciar:
+        print(f"Já está na versão mais recente: {depois}. Nada para reiniciar.")
+        return
+    reinstalar = atualizar.mudou_instalador(raiz, de, para)
+    if sys.platform == "darwin" and os.path.isdir(instalar.APP):
+        instalar.mac_copiar_codigo()  # no Mac o serviço roda a cópia que fica dentro do app
+    resumo = f"{antes} → {depois}" if de != para else depois
+    if not pid_rodando():
+        print(f"Atualizado: {resumo}. O serviço está parado; ligue com: pombo servico instalar")
+        return
+    atualizar.gravar(atualizar.novo_marcador(antes, depois, reinstalar, a.bot))
+    print(f"Atualizado: {resumo}.\n"
+          "O serviço reinicia sozinho assim que nenhum bot estiver com pedido rodando (inclusive este) "
+          "e avisa no Telegram quando voltar. Se o aviso não chegar em alguns minutos: pombo status / pombo log")
+    if reinstalar:
+        print(atualizar.AVISO_REINSTALAR)
+
+
 def cmd_skill(a):
     from . import instalar
     instalar.skill(remover=a.acao == "remover")
@@ -368,6 +402,12 @@ def montar():
     s.add_argument("acao", choices=["instalar", "remover", "status", "reiniciar", "publicar", "despublicar"])
     s.add_argument("--porta-tailscale", type=int, default=10004)
     s.set_defaults(fn=cmd_servico)
+
+    s = sub.add_parser("atualizar", help="baixa a versão nova, reinicia sozinho e avisa no Telegram")
+    s.add_argument("--reiniciar", action="store_true", help="reinicia (e avisa) mesmo sem versão nova")
+    s.add_argument("--sem-baixar", action="store_true", help="não roda o git pull (só reinicia e avisa)")
+    s.add_argument("--bot", default="", help="bot que manda o aviso (padrão: o bot desta conversa)")
+    s.set_defaults(fn=cmd_atualizar)
 
     s = sub.add_parser("skill", help="instala a skill pombo no Claude Code")
     s.add_argument("acao", choices=["instalar", "remover"])

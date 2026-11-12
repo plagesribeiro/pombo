@@ -106,18 +106,26 @@ def _mac_plist(rotulo):
     return os.path.expanduser(f"~/Library/LaunchAgents/{rotulo}.plist")
 
 
+def mac_copiar_codigo():
+    """O código vai dentro do app (o python consegue abrir sem permissão extra). Também usado pelo `pombo atualizar`."""
+    os.makedirs(RECURSOS, exist_ok=True)
+    shutil.copy2(SCRIPT, os.path.join(RECURSOS, "pombo"))
+    destino_pkg = os.path.join(RECURSOS, "src", "pombo")
+    novo = destino_pkg + ".novo"
+    if os.path.isdir(novo):
+        shutil.rmtree(novo)
+    shutil.copytree(os.path.join(RAIZ, "src", "pombo"), novo, ignore=shutil.ignore_patterns("__pycache__"))
+    if os.path.isdir(destino_pkg):
+        shutil.rmtree(destino_pkg)
+    os.replace(novo, destino_pkg)
+
+
 def _mac_instalar():
     rotulo = _mac_rotulo()
     uid = str(os.getuid())
     _rodar(["launchctl", "bootout", f"gui/{uid}/{rotulo}"], checar=False)
     os.makedirs(os.path.dirname(EXE), exist_ok=True)
-    os.makedirs(RECURSOS, exist_ok=True)
-    # o código vai dentro do app (o python consegue abrir sem permissão extra)
-    shutil.copy2(SCRIPT, os.path.join(RECURSOS, "pombo"))
-    destino_pkg = os.path.join(RECURSOS, "src", "pombo")
-    if os.path.isdir(destino_pkg):
-        shutil.rmtree(destino_pkg)
-    shutil.copytree(os.path.join(RAIZ, "src", "pombo"), destino_pkg, ignore=shutil.ignore_patterns("__pycache__"))
+    mac_copiar_codigo()
     novo = tempfile.mktemp()
     _rodar(["clang", "-O2", "-o", novo, f'-DBOT_PY="{os.path.join(RECURSOS, "pombo")}"', os.path.join(RAIZ, "mac", "lancador.c")])
     assinar = False

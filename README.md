@@ -252,6 +252,7 @@ pombo rotinas rodar|remover ID ROTINA
 pombo geral campo=valor               configuração deste computador
 pombo log [ID] [-n 80]                últimas linhas do log
 pombo testar ID "texto"               roda um pedido como se fosse você
+pombo atualizar [--reiniciar]        baixa a versão nova, reinicia sozinho e avisa no Telegram
 pombo servico instalar|remover|reiniciar|status|publicar|despublicar
 pombo skill instalar|remover
 ```
@@ -290,10 +291,29 @@ instalação). Depois, `pombo servico reiniciar`.
 **O login do Claude expirou.** Rode `claude` no terminal e faça login de novo; o Pombo usa o mesmo login. Os bots
 voltam a funcionar na próxima mensagem.
 
-## Atualizar e desinstalar
+## Atualizar
 
 ```bash
-cd ~/pombo && git pull && pombo servico instalar   # atualizar
+pombo atualizar
+```
+
+Ou mande para qualquer bot: *"atualiza o Pombo"*. Funciona igual no Linux, no Mac e no Windows:
+
+1. Baixa a versão nova (`git pull`). Se não tiver nada novo, para por aí. Se o download falhar, nada é reiniciado.
+2. O serviço espera nenhum bot estar com pedido rodando (inclusive a conversa que pediu a atualização, que termina
+   de responder antes) e reinicia a si mesmo, já com o código novo.
+3. Quando volta, ele manda no Telegram: **"✅ Pombo atualizado e reiniciado com sucesso"**, com a versão de antes e a
+   de agora. Se essa mensagem não chegar em alguns minutos, veja `pombo status` e `pombo log`.
+
+Baixar sem reiniciar não adianta: o serviço continua rodando o código antigo até reiniciar. Por isso o `pombo
+atualizar` faz as duas coisas. `pombo atualizar --reiniciar` reinicia (e avisa) mesmo sem versão nova.
+
+Se a versão nova mudar o jeito de instalar (o aviso diz quando), rode uma vez `pombo servico instalar` no terminal.
+Ele reinicia na hora e interrompe o que estiver rodando.
+
+## Desinstalar
+
+```bash
 pombo servico remover                              # parar e tirar o serviço (a configuração fica)
 rm -rf ~/.config/pombo                             # apagar também a configuração e os tokens
 ```
@@ -337,6 +357,7 @@ git clone https://github.com/plagesribeiro/pombo.git ~/pombo && cd ~/pombo
 python3 pombo servico instalar    # installs the background service (systemd / LaunchAgent / Task Scheduler)
 python3 pombo skill instalar      # optional: lets Claude Code configure Pombo for you
 pombo painel                      # prints the local panel address (http://127.0.0.1:47940)
+pombo atualizar                   # later: pulls the new version, restarts itself when idle, confirms on Telegram
 ```
 
 1. In Telegram, talk to [@BotFather](https://t.me/BotFather), send `/newbot` and copy the token.

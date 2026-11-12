@@ -10,7 +10,7 @@ import threading
 import time
 import traceback
 
-from . import config, registro, rotinas
+from . import atualizar, config, registro, rotinas
 from .execucao import BotRunner
 
 
@@ -27,6 +27,7 @@ class Servico:
         self._tokens = {}
         self._trava = threading.RLock()
         self.inicio = time.time()
+        self._ocioso_antes = False
 
     # ---------------------------------------------------------------- bots
 
@@ -149,6 +150,47 @@ class Servico:
                 log("erro no agendador:\n" + traceback.format_exc())
             time.sleep(20)
 
+    # ---------------------------------------------------------------- atualização (pombo atualizar)
+
+    def ocioso(self):
+        with self._trava:
+            return all(not r.ocupado and r.fila.empty() for r in self.runners.values())
+
+    def conferir_atualizacao(self):
+        """Roda na thread principal, a cada ~2 s. Veja atualizar.py."""
+        agora = self.ocioso()
+        # duas conferências seguidas: um pedido que acabou de sair da fila ainda pode não estar marcado como ocupado
+        ocioso, self._ocioso_antes = agora and self._ocioso_antes, agora
+        marcador = atualizar.ler()
+        acao = atualizar.decidir(marcador, self.inicio, ocioso)
+        if acao == "reiniciar":
+            log(f"atualização: reiniciando o serviço para carregar {marcador.get('depois')}")
+            atualizar.reiniciar_processo()
+        elif acao == "avisar":
+            if self._avisar_atualizacao(marcador) or time.time() - self.inicio > 600:
+                atualizar.apagar()
+
+    def _avisar_atualizacao(self, marcador):
+        """Manda o ✅ para o dono do bot que pediu (ou, sem pedido de bot, de quem for o dono do computador)."""
+        with self._trava:
+            runners = dict(self.runners)
+        r = runners.get(marcador.get("bot") or "")
+        if not r or not r.dono():
+            meu = self.geral.get("meu_id_telegram")
+            candidatos = [x for x in runners.values() if x.dono()]
+            r = next((x for x in candidatos if x.dono() == meu), candidatos[0] if candidatos else None)
+        if not r:
+            log(f"atualização aplicada ({marcador.get('depois')}); nenhum bot ligado para avisar")
+            return True
+        from .telegram import responder
+        try:
+            responder(r.tg, r.dono(), atualizar.mensagem(marcador, self.geral["nome_maquina"]), log=r.log)
+        except Exception as e:
+            log(f"atualização aplicada, mas o aviso no Telegram falhou (tento de novo): {e}")
+            return False
+        log(f"atualização aplicada ({marcador.get('depois')}); aviso mandado pelo bot \"{r.id}\"")
+        return True
+
     # ---------------------------------------------------------------- principal
 
     def rodar(self):
@@ -166,6 +208,10 @@ class Servico:
                 self.reconciliar()
             except Exception:
                 log("erro ao conferir a configuração:\n" + traceback.format_exc())
+            try:
+                self.conferir_atualizacao()
+            except Exception:
+                log("erro ao conferir a atualização:\n" + traceback.format_exc())
             time.sleep(2)
 
 
