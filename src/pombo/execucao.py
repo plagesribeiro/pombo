@@ -48,12 +48,13 @@ Me manda o que precisar: texto, áudio, foto ou arquivo. Eu rodo o Claude Code e
 
 Responder a uma mensagem minha continua a conversa daquela mensagem."""
 
+# /novo apaga o contexto: fica longe do topo do menu, onde é fácil tocar sem querer
 COMANDOS = [
-    {"command": "novo", "description": "começa uma conversa nova"},
-    {"command": "parar", "description": "interrompe o que estiver rodando"},
     {"command": "status", "description": "mostra se estou ocupado"},
     {"command": "rotinas", "description": "lista as rotinas agendadas"},
     {"command": "atualizar", "description": "atualiza o Pombo e reinicia"},
+    {"command": "parar", "description": "interrompe o que estiver rodando"},
+    {"command": "novo", "description": "esquece a conversa e começa outra"},
     {"command": "ajuda", "description": "o que eu sei fazer"},
 ]
 
@@ -273,6 +274,7 @@ class BotRunner:
             return
         texto = (m.get("text") or "").strip()
         if texto.startswith("/") and self.comando(texto, chat["id"], m.get("message_id")):
+            self.log(f"comando de {de}: {texto[:60]!r}")  # sem isso, um /novo some do log e a conversa "esquece" sem explicação
             return
         if self.ocupado or not self.fila.empty():
             try:
