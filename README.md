@@ -211,8 +211,9 @@ e a reação vira ✅.
 - **Pasta padrão:** com `todas`, o bot atende o `pombo, ...` em qualquer conversa ou grupo que não seja de outra pasta
   (a conversa ligada pelo nome a outro bot é dele): `pombo bots editar zap 'whatsapp.conversas=["eu","todas"]'`.
 - **Áudio** vale se começar com o gatilho falado ("Pombo, ..."). Para saber, o Pombo transcreve calado os seus
-  áudios das conversas liberadas (inclusive pela pasta padrão) e apaga os que não eram para ele; isso gasta
-  transcrição. O áudio dos outros nunca chama o bot.
+  áudios das conversas liberadas (inclusive pela pasta padrão) e apaga os que não eram para ele. Áudio longo: com o
+  `ffmpeg` instalado, ele transcreve só os primeiros 6 segundos e, se começar com o gatilho, aí transcreve inteiro
+  (a transcrição costuma ser cobrada por minuto). O áudio dos outros nunca chama o bot.
 - **Responder** (citar) uma mensagem do bot continua a conversa, sem precisar do gatilho.
 - Os comandos (`/novo`, `/status`, `/rotinas`...) funcionam igual.
 

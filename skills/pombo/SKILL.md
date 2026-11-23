@@ -117,7 +117,8 @@ Dois jeitos (`whatsapp.meu_numero`):
   desse WhatsApp por alguns segundos (o wacli precisa do banco livre) e religa sozinho.
 - Áudio sem legenda numa conversa que pede o gatilho: o Pombo transcreve calado e só responde se o áudio começar com
   ele (também pela pasta padrão: todo áudio do usuário nas conversas liberadas é transcrito para conferir, o que gasta
-  transcrição). O áudio dos outros nunca chama o bot.
+  transcrição; áudio de mais de 10 s, com o `ffmpeg` instalado, tem só os primeiros 6 s transcritos para conferir). O
+  áudio dos outros nunca chama o bot.
 - Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
 - No WhatsApp, o andamento é uma reação na mensagem: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando
   ferramentas e ✅ quando a resposta sai (no máximo uma troca a cada 3 s).

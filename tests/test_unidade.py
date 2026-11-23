@@ -486,6 +486,38 @@ class CanalWhatsApp(unittest.TestCase):
             self.c.wa.mensagem(self.eu, "NAO-EXISTE")
         self.assertEqual(str(e.exception), "sql: no rows in result set")
 
+    def test_audio_longo_transcreve_so_o_comeco(self):
+        from unittest import mock
+        from pombo import execucao
+        self.montar()
+        m = self.chegar(self.eu, midia="audio")
+        trecho = os.path.join(self.store, "trecho.wav")
+        open(trecho, "wb").close()
+        with mock.patch.object(execucao, "duracao_audio", return_value=300.0), \
+                mock.patch.object(execucao, "trecho_audio", return_value=trecho) as cortar, \
+                mock.patch.object(self.r, "transcrever", return_value=("Oi, lembra de comprar pão", None)) as tr, \
+                mock.patch.object(self.r, "rodar_agente") as agente:
+            self.r.processar_mensagem(m)
+        cortar.assert_called_once()
+        self.assertEqual([c[0][0] for c in tr.call_args_list], [trecho])  # só o começo; o áudio inteiro não
+        agente.assert_not_called()
+        self.assertFalse(os.path.exists(trecho))  # o trecho é apagado
+        respostas = iter([("Pombo, me lembra", None), ("Pombo, me lembra de ligar pro Geraldo amanhã às 10h", None)])
+        with mock.patch.object(execucao, "duracao_audio", return_value=300.0), \
+                mock.patch.object(execucao, "trecho_audio", side_effect=lambda c, s: open(trecho, "wb").close() or trecho), \
+                mock.patch.object(self.r, "transcrever", side_effect=lambda c: next(respostas)) , \
+                mock.patch.object(self.r, "rodar_agente", return_value=("Anotado.", "s1", None, {})) as agente:
+            self.r.processar_mensagem(m)
+        self.assertIn("me lembra de ligar pro Geraldo amanhã às 10h", agente.call_args[0][0])
+        # áudio curto (ou sem ffmpeg): uma transcrição só, do áudio inteiro
+        with mock.patch.object(execucao, "duracao_audio", return_value=4.0), \
+                mock.patch.object(execucao, "trecho_audio") as cortar, \
+                mock.patch.object(self.r, "transcrever", return_value=("Pombo, oi", None)) as tr, \
+                mock.patch.object(self.r, "rodar_agente", return_value=("Oi!", "s1", None, {})):
+            self.r.processar_mensagem(m)
+        cortar.assert_not_called()
+        self.assertEqual(tr.call_count, 1)
+
     def test_processar_audio_sem_gatilho_fica_quieto(self):
         from unittest import mock
         self.montar()

@@ -60,6 +60,58 @@ def cli_texto():
     return f"{sys.executable} {SCRIPT}"
 
 
+# ---------------------------------------------------------------- áudio: o começo, para conferir o gatilho
+
+TRECHO_AUDIO_S = 6       # quanto do começo do áudio é transcrito para ver se ele começa com o gatilho
+AUDIO_CURTO_S = 10       # áudio até esse tamanho é transcrito inteiro de uma vez (cortar não economiza)
+
+
+def achar_programa(nome):
+    """ffmpeg/ffprobe: o serviço roda sem o PATH do terminal, então olha os lugares de sempre."""
+    achado = shutil.which(nome)
+    if achado:
+        return achado
+    for pasta in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/home/linuxbrew/.linuxbrew/bin", "/snap/bin"):
+        c = os.path.join(pasta, nome)
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return ""
+
+
+def duracao_audio(caminho):
+    """Segundos do áudio, pelo ffprobe. None se não der para saber (sem ffmpeg instalado, arquivo estranho)."""
+    ffprobe = achar_programa("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        r = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", caminho],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+        return float(r.stdout.strip())
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def trecho_audio(caminho, segundos):
+    """Os primeiros `segundos` do áudio, num .wav pequeno ao lado. None se não der (sem ffmpeg)."""
+    ffmpeg = achar_programa("ffmpeg")
+    if not ffmpeg:
+        return None
+    saida = os.path.splitext(caminho)[0] + f"-inicio-{segundos}s.wav"
+    try:
+        r = subprocess.run([ffmpeg, "-nostdin", "-y", "-v", "error", "-i", caminho, "-t", str(segundos), "-ac", "1",
+                            "-ar", "16000", saida], stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return saida if r.returncode == 0 and os.path.isfile(saida) else None
+
+
+def apagar(caminho):
+    try:
+        os.remove(caminho)
+    except (OSError, TypeError):
+        pass
+
+
 # ---------------------------------------------------------------- andamento ("Recebi!", "Lendo...")
 # O de cada canal fica no canal (CanalTelegram.andamento, CanalWhatsApp.andamento).
 
@@ -351,6 +403,24 @@ class BotRunner:
                 self.proc = None
         return resultado or ultimo_texto, nova, erro, info
 
+    def conferir_gatilho_no_audio(self, caminho):
+        """O áudio começa com o gatilho? Devolve (achou, texto sem o gatilho, falha). Áudio longo: transcreve só o
+        começo para conferir e, se for para o bot, aí transcreve inteiro (a transcrição é cobrada por minuto)."""
+        canal = self.canal
+        dur = duracao_audio(caminho)
+        trecho = trecho_audio(caminho, TRECHO_AUDIO_S) if dur and dur > AUDIO_CURTO_S else None
+        if trecho:
+            inicio, falha = self.transcrever(trecho)
+            apagar(trecho)
+            if not canal.tirar_gatilho(inicio or "")[0]:
+                return False, "", falha
+            self.log(f"o começo do áudio ({TRECHO_AUDIO_S} s de {dur:.0f} s) tem o gatilho: transcrevendo inteiro")
+        transcrito, falha = self.transcrever(caminho)
+        achou, resto = canal.tirar_gatilho(transcrito or "")
+        if trecho and not achou and transcrito:
+            return True, transcrito.strip(), None  # o começo tinha o gatilho; a transcrição inteira escreveu diferente
+        return achou, resto, falha
+
     def transcrever(self, caminho):
         cmd = self.cfg.get("transcricao_cmd") or []
         if not cmd:
@@ -420,19 +490,17 @@ class BotRunner:
         if m.get("exigir_gatilho") and m.get("audio"):
             # áudio sem legenda numa conversa que pede o gatilho: transcreve calado e só segue se começar com ele.
             # Até lá, nada aparece na conversa (nem aviso, nem erro): pode ser um áudio comum para outra pessoa.
+            caminho = None
             try:
                 caminho = canal.baixar(m["audio"], anexos)
-                transcrito, falha = self.transcrever(caminho)
-                achou, resto = canal.tirar_gatilho(transcrito or "")
+                achou, resto, falha = self.conferir_gatilho_no_audio(caminho)
             except Exception as e:
                 self.log(f"áudio não conferido ({e}): ignorado")
+                apagar(caminho)
                 return
             if not achou:
                 self.log("áudio sem o gatilho no começo: ignorado" + (f" (transcrição falhou: {falha})" if falha else ""))
-                try:
-                    os.remove(caminho)
-                except OSError:
-                    pass
+                apagar(caminho)
                 return
             transcrito = resto
         andamento = canal.andamento(chat, mid)
