@@ -176,6 +176,7 @@ class Wacli:
         self.conta = wa.get("conta") or ""
         self.pasta = os.path.expanduser(wa.get("pasta_dados") or "")
         self.log = log or (lambda m: None)
+        self.ultimo_destino = ""  # o "to" do último envio (o wacli resolve o número para o JID de verdade, às vezes @lid)
 
     def base(self, ler=False):
         if not self.bin:
@@ -191,7 +192,20 @@ class Wacli:
         return cmd
 
     def rodar(self, args, ler=False, timeout=90):
-        cmd = self.base(ler) + ["--json"] + ([] if ler else ["--lock-wait", "30s"]) + [str(a) for a in args]
+        # escrita com o banco preso por outro processo do wacli que não é o sync (um envio, um `wacli` no terminal):
+        # tenta de novo em alguns segundos. Não use --lock-wait: com o sync rodando, ele espera a trava inteira
+        # antes de repassar o envio para o sync (30 s de atraso em cada envio)
+        for tentativa in range(3):
+            try:
+                return self._rodar(args, ler, timeout)
+            except ErroWhatsApp as e:
+                if ler or "locked" not in str(e).lower() or tentativa == 2:
+                    raise
+                self.log(f"o banco do wacli está ocupado; tentando de novo ({e})")
+                time.sleep(3)
+
+    def _rodar(self, args, ler, timeout):
+        cmd = self.base(ler) + ["--json"] + [str(a) for a in args]
         try:
             r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=timeout)
@@ -272,12 +286,16 @@ class Wacli:
             args.append("--allow-self")
         if responder_a:
             try:
-                return self.rodar(args + ["--reply-to", responder_a], timeout=150).get("id")
+                return self._enviado(self.rodar(args + ["--reply-to", responder_a], timeout=150))
             except ErroWhatsApp as e:
                 if "reply" not in str(e).lower() and "quot" not in str(e).lower():
                     raise
                 self.log(f"não deu para citar a mensagem ({e}); mandando sem citar")
-        return self.rodar(args, timeout=150).get("id")
+        return self._enviado(self.rodar(args, timeout=150))
+
+    def _enviado(self, d):
+        self.ultimo_destino = str(d.get("to") or "")
+        return d.get("id")
 
     def enviar_arquivo(self, chat, caminho):
         voz = caminho.lower().endswith(EXT_VOZ)
@@ -498,6 +516,10 @@ class Reacao:
         pass
 
     def fim(self):
+        # o ✅ vai depois da resposta (CanalWhatsApp.responder chama concluir); antes, parecia pronto sem estar
+        self.canal._a_concluir[self.mid] = self
+
+    def concluir(self):
         self._reagir("✅")
 
 
@@ -521,12 +543,14 @@ class CanalWhatsApp:
         self.wa = Wacli(self.cfg(), log=runner.log)
         self.eu = ""            # JID do número pareado
         self.meu_numero = ""    # só os dígitos
+        self.meus_jids = set()  # outros JIDs da conversa "eu" (o WhatsApp também usa um @lid para ela)
         self.sync = None
         self._remetentes = {}   # quem mandou cada mensagem de outra pessoa (para reagir nela)
         self._trava = threading.Lock()
         self._pendentes = set()  # textos sendo mandados agora (o diário pode mostrar antes de o envio voltar)
         self._midia_em_envio = {}  # conversa -> quantos arquivos/áudios o bot está mandando nela agora
         self._grupos_meus = {}     # grupo -> (quando conferiu, só você está nele?)
+        self._a_concluir = {}      # mensagem -> Reacao que espera a resposta sair para virar ✅
 
     def cfg(self):
         return self.r.cfg.get("whatsapp") or {}
@@ -553,7 +577,7 @@ class CanalWhatsApp:
 
     def eh_eu(self, chat):
         return bool(self.meu_numero) and tipo_de_conversa(chat) == "privada" and (
-            chat == self.eu or numero(chat) == self.meu_numero)
+            chat == self.eu or numero(chat) == self.meu_numero or chat in self.meus_jids)
 
     def chat_do_dono(self):
         if self.cfg().get("meu_numero", True):
@@ -609,13 +633,23 @@ class CanalWhatsApp:
             with self._trava:
                 self._pendentes.add(corpo.strip())
             try:
-                mid = self.wa.enviar_texto(chat, corpo, responder_a if i == 0 else None, a_si=self.eh_eu(chat))
+                a_si = self.eh_eu(chat)
+                mid = self.wa.enviar_texto(chat, corpo, responder_a if i == 0 else None, a_si=a_si)
                 self.anotar_enviada(mid)
                 ids.append(mid)
+                if a_si and self.wa.ultimo_destino.endswith("@lid"):
+                    self.meus_jids.add(self.wa.ultimo_destino)
+                if i == 0 and responder_a:
+                    self._concluir(responder_a)
             finally:
                 with self._trava:
                     self._pendentes.discard(corpo.strip())
         return ids
+
+    def _concluir(self, mid):
+        reacao = self._a_concluir.pop(mid, None)
+        if reacao:
+            reacao.concluir()
 
     def aviso(self, chat, texto, responder_a=None):
         try:

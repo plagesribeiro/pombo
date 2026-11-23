@@ -409,6 +409,7 @@ class CanalWhatsApp(unittest.TestCase):
         m = self.chegar(ana, "oi", de_mim=False)
         self.assertEqual(m["de"], "5531911112222")
         self.c.andamento(ana, m["id"]).fim()  # reação em mensagem de outra pessoa leva o --sender
+        self.c.responder(ana, "oi!", responder_a=m["id"])
         self.assertEqual({x["sender"] for x in self.f.reacoes(self.store)}, {ana})
         self.assertIsNone(self.chegar(ana, "resposta do bot", de_mim=True))
         self.assertIsNone(self.chegar("5531977778888@s.whatsapp.net", "oi", de_mim=False, nome="Estranho"))
@@ -423,6 +424,8 @@ class CanalWhatsApp(unittest.TestCase):
         self.assertTrue(self.c.baixar(m["audio"], os.path.join(self.store, "anexos")).endswith(".ogg"))
         andamento = self.c.andamento(self.eu, m["id"])
         andamento.fim()
+        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀"])  # o ✅ espera a resposta sair
+        self.c.responder(self.eu, "pronto", responder_a=m["id"])
         self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀", "✅"])
         n = len(self.recebidas)
         for x in self.f.reacoes(self.store):  # as reações aparecem no diário e são ignoradas
@@ -508,6 +511,29 @@ class CanalWhatsApp(unittest.TestCase):
         g2 = self.f.grupo(self.store, "Família", outros=["5531911112222"])
         cfg["whatsapp"]["conversas"] = ["eu", g2]
         self.assertIsNone(self.chegar(g2, "oi"))
+
+
+    def test_conversa_eu_pelo_lid(self):
+        from unittest import mock
+        self.montar()
+        with mock.patch.object(self.c.wa, "_rodar", return_value={"id": "BOTX", "to": "62444596658353@lid", "sent": True}):
+            self.c.responder(self.eu, "oi")
+        self.assertTrue(self.c.eh_eu("62444596658353@lid"))
+        self.assertEqual(self.c.conversa_liberada("62444596658353@lid"), "eu")
+
+    def test_banco_ocupado_tenta_de_novo(self):
+        from unittest import mock
+        from pombo.whatsapp import ErroWhatsApp
+        self.montar()
+        respostas = [ErroWhatsApp("store is locked (another wacli is running?)"), {"id": "B1", "to": self.eu}]
+
+        def falso(*a, **k):
+            r = respostas.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        with mock.patch.object(self.c.wa, "_rodar", side_effect=falso), mock.patch("pombo.whatsapp.time.sleep"):
+            self.assertEqual(self.c.wa.enviar_texto(self.eu, "oi", a_si=True), "B1")
 
 
 class VariosBotsNoMesmoWhatsApp(unittest.TestCase):
