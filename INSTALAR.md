@@ -156,3 +156,6 @@ ou um número só do bot.
      número do bot.
 
    A mensagem ganha 👀, a resposta chega começando com 🐦 e a reação vira ✅.
+6. Outras pastas no mesmo número: um bot por pasta, cada um com um grupo só dela
+   (`pombo bots criar mestrado-zap --pasta ~/mestrado --canal whatsapp --grupo "🎓 Mestrado"`). No grupo, é só
+   escrever, sem gatilho.

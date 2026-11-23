@@ -17,7 +17,7 @@ ARQ = "falso.json"
 
 def preparar(store, eu="5531900000000"):
     os.makedirs(store, exist_ok=True)
-    _salvar(store, {"eu": eu, "mensagens": [], "diario": [], "enviadas": [], "reacoes": [], "seq": 0})
+    _salvar(store, {"eu": eu, "mensagens": [], "diario": [], "enviadas": [], "reacoes": [], "seq": 0, "grupos": {}})
     return f"{eu}@s.whatsapp.net"
 
 
@@ -33,6 +33,22 @@ def chegar(store, chat, texto="", de_mim=True, remetente=None, nome="", midia=""
     d["diario"].append({"operation": "upsert", "chat_jid": chat, "msg_id": mid})
     _salvar(store, d)
     return mid
+
+
+def grupo(store, nome, outros=()):
+    """Cria um grupo com você (e os números em `outros`). Devolve o JID."""
+    d = _carregar(store)
+    d["seq"] += 1
+    jid = f"120363{d['seq']:06d}@g.us"
+    d.setdefault("grupos", {})[jid] = {"nome": nome, "participantes": [d["eu"]] + list(outros)}
+    _salvar(store, d)
+    return jid
+
+
+def entrar_no_grupo(store, jid, numero):
+    d = _carregar(store)
+    d["grupos"][jid]["participantes"].append(numero)
+    _salvar(store, d)
 
 
 def enviadas(store):
@@ -181,6 +197,21 @@ def main(argv):
         d["diario"].append({"operation": "upsert", "chat_jid": op.get("to"), "msg_id": mid})
         _salvar(store, d)
         _saida({"sent": True, "to": op.get("to"), "id": mid, "target": op.get("id"), "reaction": op.get("reaction")})
+    if cmd == ["groups", "participants"] and pos[2:3] == ["list"]:
+        g = d.get("grupos", {}).get(op.get("jid"))
+        _saida([{"group_jid": op.get("jid"), "user_jid": f"{n}@s.whatsapp.net", "role": "admin" if i == 0 else "member"}
+                for i, n in enumerate(g["participantes"])] if g else [])
+    if cmd == ["groups", "list"]:
+        busca = (op.get("query") or "").lower()
+        _saida([{"JID": j, "Name": g["nome"]} for j, g in d.get("grupos", {}).items() if busca in g["nome"].lower()])
+    if cmd == ["groups", "create"]:
+        d["seq"] += 1
+        jid = f"120363{d['seq']:06d}@g.us"
+        d.setdefault("grupos", {})[jid] = {"nome": op.get("name"), "participantes": [d["eu"]]}
+        _salvar(store, d)
+        _saida({"JID": jid, "GroupName": {"Name": op.get("name")}, "Participants": [{"JID": eu}]})
+    if cmd == ["doctor"]:
+        _saida({"lock_held": False, "authenticated": True, "connection_state": "disconnected"})
     if cmd == ["media", "download"]:
         pasta = op.get("output") or store
         os.makedirs(pasta, exist_ok=True)

@@ -19,6 +19,7 @@ Atenção: o wacli não é oficial. O WhatsApp pode bloquear números que usam c
 """
 import calendar
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -28,7 +29,7 @@ import threading
 import time
 import traceback
 
-from . import config
+from . import config, registro
 from .telegram import pedacos
 
 FORMATO = ('Formato da resposta (é WhatsApp): *negrito* com UM asterisco de cada lado, _itálico_, listas com "-" e '
@@ -40,7 +41,8 @@ EXT_VOZ = (".ogg", ".oga", ".opus")
 FOTOS = ("image", "sticker")
 ARQUIVOS = ("video", "document", "gif", "ptv")  # o resto (localização, contato, enquete) vai como texto
 COMANDOS = {"/novo", "/parar", "/status", "/rotinas", "/rodar", "/atualizar", "/ajuda", "/help", "/start"}
-MAX_IDADE_S = 24 * 3600  # como o Telegram: mensagem com mais de um dia (computador desligado) não é respondida
+MAX_IDADE_S = 24 * 3600
+CACHE_GRUPO_S = 60  # como o Telegram: mensagem com mais de um dia (computador desligado) não é respondida
 MAX_VISTAS = 2000
 MAX_ENVIADAS = 1000
 
@@ -91,6 +93,10 @@ def tirar_gatilho(texto, gatilho):
     if not m:
         return False, texto.strip()
     return True, texto[m.end():].strip()
+
+
+def chave_do_store(conta, pasta):
+    return f"{conta or ''}|{os.path.abspath(os.path.expanduser(pasta)) if pasta else ''}"
 
 
 def eh_comando(texto):
@@ -225,6 +231,30 @@ class Wacli:
             return d.get("messages") or []
         return list(d or [])
 
+    def chave(self):
+        """Identifica o WhatsApp (o banco do wacli): bots com a mesma chave usam o mesmo número."""
+        return chave_do_store(self.conta, self.pasta)
+
+    def participantes(self, grupo):
+        d = self.rodar(["groups", "participants", "list", "--jid", grupo], ler=True, timeout=30)
+        return d if isinstance(d, list) else (d.get("participants") or [] if isinstance(d, dict) else [])
+
+    def grupos(self, busca=""):
+        d = self.rodar(["groups", "list", "--limit", 200] + (["--query", busca] if busca else []), ler=True, timeout=30)
+        return d if isinstance(d, list) else (d.get("groups") or [] if isinstance(d, dict) else [])
+
+    def banco_livre(self):
+        """Ninguém (nenhum `wacli sync`) segura o banco agora?"""
+        return not self.rodar(["doctor"], ler=True, timeout=30).get("lock_held")
+
+    def criar_grupo(self, nome):
+        """Cria um grupo só com você. Precisa do banco livre (o sync parado). Devolve o JID."""
+        d = self.rodar(["groups", "create", "--name", nome], timeout=180)
+        jid = d.get("JID") or d.get("jid") or ""
+        if not str(jid).endswith("@g.us"):
+            raise ErroWhatsApp(f"o wacli criou o grupo, mas não devolveu o JID ({json.dumps(d)[:200]})")
+        return str(jid)
+
     def baixar(self, chat, mid, pasta):
         os.makedirs(pasta, exist_ok=True)
         d = self.rodar(["media", "download", "--chat", chat, "--id", mid, "--output", pasta + os.sep], ler=True,
@@ -265,11 +295,14 @@ class Wacli:
 
 class Sincronizador:
     """Mantém um `wacli sync --follow` rodando: é ele quem fica conectado ao WhatsApp e grava as mensagens no banco.
-    Os envios (`send ...`) são repassados para ele pelo próprio wacli."""
+    Os envios (`send ...`) são repassados para ele pelo próprio wacli. Um só por número: os bots que usam o mesmo
+    WhatsApp (um por pasta) dividem o mesmo sync (veja obter_sincronizador)."""
 
-    def __init__(self, wacli, espaco, log, parar_evento, arq_pid=""):
-        self.wacli, self.espaco, self.log, self.parar_evento = wacli, espaco, log, parar_evento
-        self.arq_pid = arq_pid  # PID do sync que este bot ligou (para não deixar um órfão segurando o banco)
+    def __init__(self, wacli, espaco, log, parar_evento=None, arq_pid=""):
+        self.wacli, self.espaco, self.log = wacli, espaco, log
+        self.parar_evento = parar_evento or threading.Event()
+        self.arq_pid = arq_pid  # PID do sync que o Pombo ligou (para não deixar um órfão segurando o banco)
+        self.usuarios = set()   # bots que usam este sync
         self.proc = None
         self.erro = ""
         self.conectado = False
@@ -280,7 +313,11 @@ class Sincronizador:
         self.thread = threading.Thread(target=self._laco, name="wacli-sync", daemon=True)
         self.thread.start()
 
+    def vivo(self):
+        return bool(self.thread and self.thread.is_alive())
+
     def parar(self):
+        self.parar_evento.set()
         p = self.proc
         if p and p.poll() is None:
             p.terminate()
@@ -412,6 +449,37 @@ class Sincronizador:
 
 # ---------------------------------------------------------------- andamento: reação na mensagem
 
+_syncs = {}
+_syncs_trava = threading.Lock()
+
+
+def obter_sincronizador(wacli, espaco, bot_id):
+    """O sync do número deste bot (liga se ainda não houver). Cada bot que pega precisa soltar."""
+    chave = wacli.chave()
+    with _syncs_trava:
+        s = _syncs.get(chave)
+        if s is None or s.parar_evento.is_set():
+            nome = hashlib.sha1(chave.encode()).hexdigest()[:10]
+            s = Sincronizador(wacli, espaco, lambda m: registro.log(None, "wacli: " + m),
+                              arq_pid=config.caminho("estado", f"wacli-{nome}.pid"))
+            _syncs[chave] = s
+            s.iniciar()
+        s.usuarios.add(bot_id)
+        return s
+
+
+def soltar_sincronizador(s, bot_id):
+    """O bot parou de usar o sync. O último a soltar desliga."""
+    with _syncs_trava:
+        s.usuarios.discard(bot_id)
+        if s.usuarios:
+            return
+        for k, v in list(_syncs.items()):
+            if v is s:
+                _syncs.pop(k)
+    s.parar()
+
+
 class Reacao:
     """No WhatsApp não dá para editar um "Recebi!" sem encher a conversa: marca a mensagem com 👀 e, no fim, ✅."""
 
@@ -458,6 +526,7 @@ class CanalWhatsApp:
         self._trava = threading.Lock()
         self._pendentes = set()  # textos sendo mandados agora (o diário pode mostrar antes de o envio voltar)
         self._midia_em_envio = {}  # conversa -> quantos arquivos/áudios o bot está mandando nela agora
+        self._grupos_meus = {}     # grupo -> (quando conferiu, só você está nele?)
 
     def cfg(self):
         return self.r.cfg.get("whatsapp") or {}
@@ -582,7 +651,8 @@ class CanalWhatsApp:
 
     def parar(self):
         if self.sync:
-            self.sync.parar()
+            soltar_sincronizador(self.sync, self.r.id)
+            self.sync = None
 
     # ---- receber
 
@@ -601,9 +671,10 @@ class CanalWhatsApp:
         if r.parar_evento.is_set():
             return
         r.username = "+" + self.meu_numero
-        self.sync = Sincronizador(self.wa, self.cfg().get("espaco_entre_envios") or "", r.log, r.parar_evento,
-                                  arq_pid=config.caminho("estado", r.id + ".wacli.pid"))
-        self.sync.iniciar()
+        self.sync = obter_sincronizador(self.wa, self.cfg().get("espaco_entre_envios") or "", r.id)
+        if r.parar_evento.is_set():  # o bot foi desligado enquanto ligava
+            self.parar()
+            return
         r.anunciar_ligado(f"WhatsApp +{self.meu_numero}")
         est = r.estado.ler().get("whatsapp") or {}
         checkpoint, desde = est.get("checkpoint"), est.get("desde")
@@ -653,6 +724,24 @@ class CanalWhatsApp:
         self.r.estado.atualizar(lambda d: self._est(d).update({"checkpoint": ck, "desde": desde}))
         return ck, desde
 
+    def grupo_so_meu(self, grupo):
+        """Grupo em que só você está (criado para uma pasta, como um chat do Telegram): dispensa o gatilho.
+        Na dúvida (lista vazia, erro), não é: aí vale a regra de grupo, com gatilho."""
+        agora = time.time()
+        guardado = self._grupos_meus.get(grupo)
+        if guardado and agora - guardado[0] < CACHE_GRUPO_S:
+            return guardado[1]
+        try:
+            gente = {numero(p.get("user_jid") or p.get("UserJID") or "") or p.get("user_jid")
+                     for p in self.wa.participantes(grupo) if isinstance(p, dict)}
+            gente.discard("")
+            sozinho = len(gente) == 1  # você está no grupo: se só tem uma pessoa, é você
+        except ErroWhatsApp as e:
+            self.r.log(f"não consegui ver quem está no grupo {grupo} ({e})")
+            sozinho = False
+        self._grupos_meus[grupo] = (agora, sozinho)
+        return sozinho
+
     def conversa_liberada(self, chat):
         tipo = tipo_de_conversa(chat)
         if not tipo:
@@ -696,6 +785,8 @@ class CanalWhatsApp:
             return False  # histórico que o wacli trouxe agora, ou mensagem velha demais (computador desligado)
         if mid in (est.get("enviadas") or []):
             return False
+        if onde == "grupo" and self.grupo_so_meu(chat):
+            onde = "meu_grupo"  # funciona como a conversa "eu", sem gatilho
         midia = (m.get("MediaType") or "").lower()
         if midia and midia != "audio" and midia not in FOTOS + ARQUIVOS:
             midia, texto = "", (m.get("Text") or m.get("DisplayText") or "")
@@ -719,7 +810,7 @@ class CanalWhatsApp:
                 de = "eu"
             else:
                 de = numero(remetente)
-                if onde == "eu" or de not in r.cfg["usuarios_permitidos"]:
+                if onde in ("eu", "meu_grupo") or de not in r.cfg["usuarios_permitidos"]:
                     return False  # mensagem dos outros no seu número: o Pombo não se mete
                 nome = m.get("SenderName") or ""
         else:
@@ -735,13 +826,18 @@ class CanalWhatsApp:
         # gatilho
         citada_id = m.get("quoted_msg_id") or ""
         responde_ao_bot = bool(citada_id) and citada_id in (est.get("enviadas") or [])
-        precisa = bool(wa.get("gatilho_sempre")) or onde == "grupo" or (wa.get("meu_numero", True) and onde != "eu")
+        if onde == "meu_grupo":
+            precisa = False  # o grupo é só desta pasta, como um chat do Telegram
+        elif onde == "eu":
+            precisa = bool(wa.get("gatilho_sempre"))
+        else:
+            precisa = onde == "grupo" or wa.get("meu_numero", True) or bool(wa.get("gatilho_sempre"))
         achou, resto = tirar_gatilho(texto, wa.get("gatilho") or "")
         if achou:
             texto = resto
         # comandos (/status, /parar...) só na conversa "eu" e nas privadas do número do bot: num grupo ou na conversa
         # dos outros, mostrariam o que o dono está fazendo (ou parariam o pedido dele)
-        pode_comando = onde == "eu" or (not wa.get("meu_numero", True) and onde == "privada")
+        pode_comando = onde in ("eu", "meu_grupo") or (not wa.get("meu_numero", True) and onde == "privada")
         comando_livre = pode_comando and eh_comando(texto)
         exigir_gatilho_no_audio = False
         if precisa and not achou and not responde_ao_bot and not comando_livre:
@@ -761,7 +857,7 @@ class CanalWhatsApp:
             msg["arquivos"] = [{"nome": m.get("Filename") or midia, "anexo": anexo}]
         if citada_id:
             msg["citada"] = {"id": citada_id, "texto": self._texto_de(chat, citada_id)}
-        if onde != "eu" and wa.get("contexto_mensagens"):
+        if onde not in ("eu", "meu_grupo") and wa.get("contexto_mensagens"):
             msg["contexto"] = self._contexto(chat, mid, wa["contexto_mensagens"])
         if remetente and not de_mim:
             self._remetentes[mid] = remetente

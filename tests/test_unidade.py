@@ -482,3 +482,114 @@ class CanalWhatsApp(unittest.TestCase):
             self.r.processar_mensagem(m)
         self.assertIn("(Mensagem de áudio, transcrita) que horas são?", agente.call_args[0][0])
         self.assertEqual(self.f.enviadas(self.store)[-1]["text"], "🐦 São 10h.")
+
+    def test_grupo_so_meu_e_uma_pasta(self):
+        from unittest import mock
+        self.montar(conversas=["eu"])
+        g = self.f.grupo(self.store, "🎓 Mestrado")
+        cfg = self.r.cfg
+        cfg["whatsapp"]["conversas"] = ["eu", g]
+        # grupo só seu: escreve direto, sem gatilho; comando vale; nada de contexto dos outros
+        m = self.chegar(g, "qual o prazo da ICEIS?")
+        self.assertEqual((m["texto"], m["de"], m["pode_comando"]), ("qual o prazo da ICEIS?", "eu", True))
+        self.assertNotIn("contexto", m)
+        self.assertTrue(self.chegar(g, "/status")["pode_comando"])
+        e = self.c.responder(g, "21/12.")
+        self.assertFalse(self.f.enviadas(self.store)[-1]["allow-self"])  # grupo não é "mandar para si mesmo"
+        n = len(self.recebidas)
+        self.c.examinar(g, e[0], self.desde)  # a resposta do bot no grupo não vira pedido
+        self.assertEqual(len(self.recebidas), n)
+        # entrou mais alguém: volta a ser grupo comum, com gatilho
+        self.f.entrar_no_grupo(self.store, g, "5531955556666")
+        with mock.patch("pombo.whatsapp.CACHE_GRUPO_S", 0):
+            self.assertIsNone(self.chegar(g, "e agora?"))
+            self.assertEqual(self.chegar(g, "pombo, e agora?")["texto"], "e agora?")
+        # grupo com outras pessoas desde o começo: só com gatilho
+        g2 = self.f.grupo(self.store, "Família", outros=["5531911112222"])
+        cfg["whatsapp"]["conversas"] = ["eu", g2]
+        self.assertIsNone(self.chegar(g2, "oi"))
+
+
+class VariosBotsNoMesmoWhatsApp(unittest.TestCase):
+    def setUp(self):
+        from tests import wacli_falso
+        self.f = wacli_falso
+        self.store = tempfile.mkdtemp(prefix="wacli-falso-")
+        self.f.preparar(self.store)
+        self.script = os.path.join(RAIZ, "tests", "wacli_falso.py")
+        for b in config.listar_ids():
+            config.remover_bot(b)
+
+    def bot(self, bot_id, **wa):
+        return config.salvar_bot(bot_id, {"canal": "whatsapp", "pasta": self.store,
+                                          "whatsapp": {"wacli": self.script, "pasta_dados": self.store, **wa}})
+
+    def test_cada_conversa_com_um_bot(self):
+        self.bot("pessoal-zap")
+        with self.assertRaises(config.ErroConfig) as e:
+            self.bot("mestrado-zap")  # também quer a conversa "eu"
+        self.assertIn("pombo whatsapp grupo criar", str(e.exception))
+        self.bot("mestrado-zap", conversas=["120363000001@g.us"])
+        # outro WhatsApp (outra conta do wacli) pode usar a conversa "eu" dele
+        self.bot("trabalho-zap", conta="trabalho")
+        # pausado não conta
+        cfg = config.carregar_bot("pessoal-zap")
+        cfg["ativo"] = False
+        config.salvar_bot("pessoal-zap", cfg)
+        self.bot("outro-zap")
+
+    def test_um_sync_por_numero(self):
+        from pombo import whatsapp
+        w = whatsapp.Wacli({"wacli": self.script, "pasta_dados": self.store})
+        a = whatsapp.obter_sincronizador(w, "", "bot-a")
+        b = whatsapp.obter_sincronizador(whatsapp.Wacli({"wacli": self.script, "pasta_dados": self.store}), "", "bot-b")
+        self.assertIs(a, b)
+        whatsapp.soltar_sincronizador(a, "bot-a")
+        self.assertFalse(a.parar_evento.is_set())  # o bot-b ainda usa
+        whatsapp.soltar_sincronizador(a, "bot-b")
+        self.assertTrue(a.parar_evento.is_set())
+        a.thread.join(10)
+        self.assertFalse(a.vivo())
+        c = whatsapp.obter_sincronizador(w, "", "bot-a")  # liga outro depois
+        self.assertIsNot(c, a)
+        whatsapp.soltar_sincronizador(c, "bot-a")
+
+    def test_criar_e_ligar_grupo_pela_linha_de_comando(self):
+        import argparse
+        import contextlib
+        import io
+        from pombo import cli
+        self.bot("pessoal-zap")
+        self.bot("mestrado-zap", conversas=["5531988887777"])
+        args = argparse.Namespace(acao="grupo", grupo_acao="criar", bot="mestrado-zap", nome="🎓 Mestrado",
+                                  so_o_grupo=True, wacli=None, conta=None, telefone=None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_whatsapp(args)
+        cfg = config.carregar_bot("mestrado-zap")
+        (jid,) = cfg["whatsapp"]["conversas"]
+        self.assertTrue(jid.endswith("@g.us"))
+        self.assertTrue(cfg["ativo"] and config.carregar_bot("pessoal-zap")["ativo"])  # religou quem pausou
+        # ligar um grupo que já existe, pelo nome
+        g = self.f.grupo(self.store, "🏠 Casa")
+        args = argparse.Namespace(acao="grupo", grupo_acao="ligar", bot="pessoal-zap", nome="🏠 casa",
+                                  so_o_grupo=False, wacli=None, conta=None, telefone=None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_whatsapp(args)
+        self.assertEqual(config.carregar_bot("pessoal-zap")["whatsapp"]["conversas"], ["eu", g])
+        # criar o bot já com o grupo
+        args = argparse.Namespace(acao="criar", id="casa-zap", pasta=self.store, nome=None, canal="whatsapp",
+                                  numero_separado=False, conta=None, grupo="🏡 Obra", usuario=None, permissoes=None,
+                                  pares=[], json=False)
+        from unittest import mock
+        with mock_wacli(self.script), mock.patch.dict(os.environ, {"WACLI_STORE_DIR": self.store}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_bots(args)
+        conversas = config.carregar_bot("casa-zap")["whatsapp"]["conversas"]
+        self.assertEqual(len(conversas), 1)
+        self.assertTrue(conversas[0].endswith("@g.us"))
+
+
+def mock_wacli(script):
+    """O `bots criar` procura o wacli no PATH: aqui ele acha o falso."""
+    from unittest import mock
+    return mock.patch("pombo.whatsapp.achar_wacli", lambda caminho="": caminho or script)

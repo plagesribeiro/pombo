@@ -23,6 +23,9 @@ pombo bots criar ID --pasta P [--nome N] [--usuario 123] [--permissoes total|aut
 pombo bots criar ID --pasta P --canal whatsapp [--numero-separado] [--conta C]   # bot do WhatsApp
 pombo whatsapp parear [--bot ID] [--telefone +55...]   # QR (ou código) no terminal: só o usuário faz, no celular
 pombo whatsapp status [--bot ID]      # se está pareado e qual número
+pombo bots criar ID --pasta P --canal whatsapp --grupo "🎓 Nome"   # bot novo já com um grupo só do usuário
+pombo whatsapp grupo criar --bot ID [--nome N] [--so-o-grupo]     # cria um grupo só do usuário e liga ao bot
+pombo whatsapp grupo ligar --bot ID --nome "Nome do grupo"|JID    # liga um grupo que já existe
 pombo bots liberar ID 123456789       # (--tirar para remover)
 pombo bots pausar|ligar ID
 pombo bots remover ID --sim           # só com confirmação explícita do usuário
@@ -105,6 +108,11 @@ Dois jeitos (`whatsapp.meu_numero`):
 | `wacli`, `conta`, `pasta_dados` | caminho do wacli (o serviço roda sem o PATH do terminal), `--account` e `--store` dele |
 | `intervalo_s`, `espaco_entre_envios` | de quanto em quanto tempo olha mensagens; pausa entre envios (`1s-3s`) |
 
+- **Uma pasta, um grupo:** no número do usuário só existe uma conversa "eu". Para várias pastas, cada bot ganha um
+  grupo só do usuário (`--grupo` no `bots criar`, ou `pombo whatsapp grupo criar --bot ID`). Num grupo em que só o
+  usuário está, não precisa de gatilho; se entrar mais alguém, volta a exigir. Cada conversa fica com **um** bot só
+  (o `salvar` recusa duas iguais no mesmo WhatsApp), e todos dividem o mesmo `wacli sync`. Criar grupo pausa os bots
+  desse WhatsApp por alguns segundos (o wacli precisa do banco livre) e religa sozinho.
 - Áudio sem legenda numa conversa que pede o gatilho: o Pombo transcreve e só responde se o áudio começar com ele.
 - Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
 - No WhatsApp, o andamento é uma reação na mensagem: 👀 ao começar e ✅ no fim.
@@ -137,7 +145,8 @@ Responder à mensagem de uma rotina no Telegram continua a conversa daquela roda
 - Se o bot responder "ainda não tem dono", é porque `usuarios_permitidos` está vazio: libere o ID que ele mostrou.
 - Cada token só pode rodar em **um** computador (o Telegram dá erro 409 se dois lerem o mesmo bot).
 - Bot do WhatsApp: criar (`--canal whatsapp`) → o usuário roda `pombo whatsapp parear` **no terminal** e lê o QR no
-  celular (você não consegue fazer isso por ele). Não tem token.
+  celular (você não consegue fazer isso por ele). Não tem token. O segundo bot no mesmo número precisa de um grupo
+  (`--grupo "Nome"`), porque a conversa "eu" já é do primeiro.
 - Depois de mudar algo, diga em uma linha o que mudou e quando vale (em ~2 s; rotina nova roda no próximo horário).
 - Se o bot "não respondeu": `pombo status` e `pombo log ID -n 80`.
 - **Atualizar o Pombo** ("atualiza o Pombo", "tem versão nova?"): o usuário também pode mandar `/atualizar` direto

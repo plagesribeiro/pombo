@@ -424,8 +424,37 @@ def salvar_bot(bot_id, cfg):
     if not ID_VALIDO.match(bot_id or ""):
         raise ErroConfig(f'id inválido: "{bot_id}". Use letras minúsculas, números e hífen (ex.: pessoal, trabalho)')
     cfg = validar_bot(cfg)
+    conferir_conversas(bot_id, cfg)
     gravar_json(arq_bot(bot_id), cfg)
     return cfg
+
+
+def chave_whatsapp(cfg):
+    """Bots com a mesma chave usam o mesmo WhatsApp (a mesma conta e pasta do wacli)."""
+    wa = cfg.get("whatsapp") or {}
+    pasta = wa.get("pasta_dados") or ""
+    return f"{wa.get('conta') or ''}|{os.path.abspath(os.path.expanduser(pasta)) if pasta else ''}"
+
+
+def conferir_conversas(bot_id, cfg):
+    """No mesmo WhatsApp, cada conversa fica com um bot só (senão os dois respondem)."""
+    if cfg.get("canal") != "whatsapp" or not cfg.get("ativo"):
+        return
+    minhas = set(cfg["whatsapp"]["conversas"])
+    for outro in listar_ids():
+        if outro == bot_id:
+            continue
+        try:
+            o = validar_bot(carregar_bot(outro))
+        except ErroConfig:
+            continue
+        if o["canal"] != "whatsapp" or not o["ativo"] or chave_whatsapp(o) != chave_whatsapp(cfg):
+            continue
+        comum = sorted(minhas & set(o["whatsapp"]["conversas"]))
+        if comum:
+            nome = "a conversa com você mesmo" if comum[0] == "eu" else f"a conversa {comum[0]}"
+            raise ErroConfig(f'{nome} já é do bot "{outro}" neste mesmo WhatsApp: cada conversa fica com um bot só. '
+                             "Para outra pasta, crie um grupo só seu: pombo whatsapp grupo criar --bot " + bot_id)
 
 
 def remover_bot(bot_id):

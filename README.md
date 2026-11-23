@@ -205,6 +205,19 @@ Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda h
 - **Responder** (citar) uma mensagem do bot continua a conversa, sem precisar do gatilho.
 - Os comandos (`/novo`, `/status`, `/rotinas`...) funcionam igual.
 
+**Uma pasta, um grupo (como no Telegram).** No seu número só existe uma conversa com você mesmo. Para ter várias
+pastas, cada bot ganha um **grupo só seu**, que aparece como uma conversa separada na lista do WhatsApp:
+
+```bash
+pombo bots criar mestrado-zap --pasta ~/mestrado --canal whatsapp --grupo "🎓 Mestrado"
+pombo whatsapp grupo criar --bot zap --nome "🐦 Pessoal"      # grupo para um bot que já existe
+pombo whatsapp grupo ligar --bot zap --nome "Casa"           # um grupo que você já criou no celular
+```
+
+Num grupo só seu, é só escrever, sem gatilho. Se entrar mais alguém, ele volta a exigir o gatilho. Cada conversa fica
+com um bot só, e todos dividem a mesma conexão do WhatsApp (o Pombo pausa os bots por alguns segundos para criar um
+grupo, porque o wacli precisa do banco livre).
+
 **Num número só do bot** (`pombo bots criar zap --pasta P --canal whatsapp --numero-separado`): o bot vira um contato.
 Libere quem pode falar com ele (`pombo bots liberar zap +55 31 99999-0000`), e a conversa é como a do Telegram.
 
@@ -307,6 +320,7 @@ pombo rotinas criar ID --nome N --horarios 07:00,17:00 --prompt "..."
 pombo rotinas editar ID ROTINA campo=valor
 pombo rotinas rodar|remover ID ROTINA
 pombo whatsapp parear|status          conecta o WhatsApp (wacli) neste computador
+pombo whatsapp grupo criar|ligar --bot ID --nome N   um grupo só seu por bot (uma pasta por grupo)
 pombo geral campo=valor               configuração deste computador
 pombo log [ID] [-n 80]                últimas linhas do log
 pombo testar ID "texto"               roda um pedido como se fosse você

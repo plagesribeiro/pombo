@@ -54,6 +54,16 @@ class PontaAPonta(unittest.TestCase):
                                   "conectores_claude_ai": False,
                                   "whatsapp": {"wacli": os.path.join(RAIZ, "tests", "wacli_falso.py"),
                                                "pasta_dados": cls.store, "intervalo_s": 1}})
+        # um segundo bot no mesmo WhatsApp, com um grupo só do usuário (uma pasta por grupo)
+        cls.pasta2 = tempfile.mkdtemp(prefix="pombo-e2e-pasta2-")
+        with open(os.path.join(cls.pasta2, "segredo.txt"), "w") as f:
+            f.write("jabuticaba\n")
+        cls.grupo = wacli_falso.grupo(cls.store, "🎓 Pasta 2")
+        config.salvar_bot("zap2", {"nome": "Bot Zap 2", "canal": "whatsapp", "pasta": cls.pasta2, "modelo": "haiku",
+                                   "conectores_claude_ai": False,
+                                   "whatsapp": {"wacli": os.path.join(RAIZ, "tests", "wacli_falso.py"),
+                                                "pasta_dados": cls.store, "intervalo_s": 1, "conversas": [cls.grupo],
+                                                "prefixo": "🎓 "}})
         from pombo.servico import Servico
         cls.servico = Servico()
         threading.Thread(target=cls.servico.rodar, daemon=True).start()
@@ -185,6 +195,21 @@ class PontaAPonta(unittest.TestCase):
         st, d = self.api("GET", "/api/estado")
         zap = next(b for b in d["bots"] if b["id"] == "zap")
         self.assertEqual((zap["estado"]["situacao"], zap["estado"]["username"]), ("ligado", "+5531900000000"))
+
+    def test_8_grupo_so_meu_e_outra_pasta(self):
+        fim = time.time() + 20
+        while time.time() < fim and not (self.config.Estado("zap2").ler().get("whatsapp") or {}).get("checkpoint"):
+            time.sleep(0.3)
+        from pombo import whatsapp
+        self.assertEqual(len(whatsapp._syncs), 1)  # os dois bots dividem um sync só
+        self.assertEqual(next(iter(whatsapp._syncs.values())).usuarios, {"zap", "zap2"})
+        self.wa.chegar(self.store, self.grupo, "Leia o arquivo segredo.txt e responda só com a palavra que está nele.")
+        r = self.esperar_zap(lambda e: "jabuticaba" in e.get("text", "").lower())
+        self.assertIsNotNone(r, f"o grupo não respondeu. Enviadas: {self.wa.enviadas(self.store)}")
+        self.assertEqual(r["to"], self.grupo)
+        self.assertTrue(r["text"].startswith("🎓 "))
+        self.assertFalse(any("jabuticaba" in e.get("text", "").lower() and e["to"] != self.grupo
+                             for e in self.wa.enviadas(self.store)), "o bot da conversa eu respondeu no grupo")
 
     def test_5_comandos(self):
         self.tg.mandar(42, "/rotinas")
