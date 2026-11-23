@@ -424,6 +424,7 @@ class CanalWhatsApp(unittest.TestCase):
         self.assertTrue(self.c.baixar(m["audio"], os.path.join(self.store, "anexos")).endswith(".ogg"))
         andamento = self.c.andamento(self.eu, m["id"])
         andamento.fim()
+        andamento._olhos.join(10)  # o 👀 vai em paralelo
         self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀"])  # o ✅ espera a resposta sair
         self.c.responder(self.eu, "pronto", responder_a=m["id"])
         self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀", "✅"])

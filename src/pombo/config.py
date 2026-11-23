@@ -85,7 +85,7 @@ WHATSAPP_PADRAO = {
     "gatilho_sempre": True,         # exige o gatilho também na conversa "eu" e nas privadas do número do bot
     "prefixo": "🐦 ",               # começo de toda resposta (no seu número, é como o Pombo se reconhece)
     "contexto_mensagens": 10,       # fora da conversa "eu": quantas mensagens anteriores vão junto, como contexto
-    "intervalo_s": 2,               # de quanto em quanto tempo olha se chegou mensagem
+    "intervalo_s": 1,               # de quanto em quanto tempo olha se chegou mensagem
     "espaco_entre_envios": "1s-3s",  # pausa entre envios (--send-spacing do wacli); vazio = sem pausa
 }
 

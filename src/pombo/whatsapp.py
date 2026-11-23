@@ -503,7 +503,9 @@ class Reacao:
 
     def __init__(self, canal, chat, mid, remetente=None):
         self.canal, self.chat, self.mid, self.remetente = canal, chat, mid, remetente
-        self._reagir("👀")
+        # o 👀 vai em paralelo: o Claude começa na hora, sem esperar o envio da reação (~2 s)
+        self._olhos = threading.Thread(target=self._reagir, args=("👀",), daemon=True)
+        self._olhos.start()
 
     def _reagir(self, emoji):
         try:
@@ -520,6 +522,7 @@ class Reacao:
         self.canal._a_concluir[self.mid] = self
 
     def concluir(self):
+        self._olhos.join(60)  # o ✅ nunca pode chegar antes do 👀 (a última reação é a que fica)
         self._reagir("✅")
 
 
