@@ -947,8 +947,11 @@ class CanalWhatsApp:
         comando_livre = pode_comando and eh_comando(texto)
         exigir_gatilho_no_audio = False
         if precisa and not achou and not responde_ao_bot and not comando_livre:
-            if midia == "audio" and not texto.strip() and wa.get("gatilho") and r.cfg.get("transcricao_cmd"):
-                exigir_gatilho_no_audio = True  # o gatilho pode estar falado no começo do áudio
+            # o gatilho pode estar falado no começo do áudio. Só nas conversas ligadas pelo nome ("eu", um grupo):
+            # pela pasta padrão, seria transcrever todo áudio seu, de qualquer conversa, só para conferir
+            if midia == "audio" and not texto.strip() and wa.get("gatilho") and r.cfg.get("transcricao_cmd") \
+                    and not curinga:
+                exigir_gatilho_no_audio = True
             else:
                 return False
         msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto,

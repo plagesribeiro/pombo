@@ -116,6 +116,8 @@ Dois jeitos (`whatsapp.meu_numero`):
   (o `salvar` recusa duas iguais no mesmo WhatsApp), e todos dividem o mesmo `wacli sync`. Criar grupo pausa os bots
   desse WhatsApp por alguns segundos (o wacli precisa do banco livre) e religa sozinho.
 - Áudio sem legenda numa conversa que pede o gatilho: o Pombo transcreve e só responde se o áudio começar com ele.
+  Só nas conversas ligadas pelo nome ("eu", um grupo): pela pasta padrão (`todas`), áudio só vale com a legenda
+  "pombo, ...", senão o Pombo transcreveria todo áudio do usuário, de qualquer conversa.
 - Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
 - No WhatsApp, o andamento é uma reação na mensagem: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando
   ferramentas e ✅ quando a resposta sai (no máximo uma troca a cada 3 s).
