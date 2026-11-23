@@ -417,7 +417,7 @@ class CanalWhatsApp(unittest.TestCase):
         self.assertEqual((desc["id"], desc["nome"]), ("5531977778888", "Estranho"))
 
     def test_audio_e_reacao(self):
-        self.montar()
+        self.montar(reacoes="etapas")
         m = self.chegar(self.eu, midia="audio")  # áudio sem legenda: o gatilho pode estar falado
         self.assertTrue(m["exigir_gatilho"])
         self.assertEqual(m["audio"], (self.eu, m["id"]))
@@ -582,6 +582,23 @@ class CanalWhatsApp(unittest.TestCase):
         with mock.patch.object(self.c.wa, "_rodar", side_effect=falso), mock.patch("pombo.whatsapp.time.sleep"):
             self.assertEqual(self.c.wa.enviar_texto(self.eu, "oi", a_si=True), "B1")
 
+
+    def test_reacoes_simples_e_nenhuma(self):
+        from unittest import mock
+        from pombo.whatsapp import SemReacao
+        self.montar()  # padrão: só 👀 e ✅
+        m = self.chegar(self.eu, "pombo, oi")
+        with mock.patch("pombo.whatsapp.Reacao.INTERVALO", 0):
+            r = self.c.andamento(self.eu, m["id"])
+            for etapa in ("🧠 Pensando…", "📖 Lendo", "⚙️ git"):
+                r.mostrar(etapa)
+            r.fim()
+            self.c.responder(self.eu, "oi!", responder_a=m["id"])
+        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀", "✅"])
+        self.r.cfg["whatsapp"]["reacoes"] = "nenhuma"
+        self.assertIsInstance(self.c.andamento(self.eu, m["id"]), SemReacao)
+        with self.assertRaises(config.ErroConfig):
+            config.validar_bot({"canal": "whatsapp", "whatsapp": {"reacoes": "muitas"}})
 
     def test_reacao_no_grupo_leva_o_remetente(self):
         self.montar()

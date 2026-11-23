@@ -87,6 +87,7 @@ WHATSAPP_PADRAO = {
     "contexto_mensagens": 10,       # fora da conversa "eu": quantas mensagens anteriores vão junto, como contexto
     "intervalo_s": 1,               # de quanto em quanto tempo olha se chegou mensagem
     "espaco_entre_envios": "1s-3s",  # pausa entre envios (--send-spacing do wacli); vazio = sem pausa
+    "reacoes": "simples",           # na sua mensagem: "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"
 }
 
 ROTINA_PADRAO = {
@@ -316,6 +317,8 @@ def validar_whatsapp(wa, usuarios):
     if wa["espaco_entre_envios"] and not re.match(r"^\d+(ms|s)(-\d+(ms|s))?$", wa["espaco_entre_envios"].strip()):
         raise ErroConfig('whatsapp.espaco_entre_envios fica assim: "2s", "500ms" ou "1s-3s" (vazio = sem pausa)')
     wa["espaco_entre_envios"] = wa["espaco_entre_envios"].strip()
+    if wa["reacoes"] not in ("simples", "etapas", "nenhuma"):
+        raise ErroConfig('whatsapp.reacoes precisa ser "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"')
     if wa["conta"] and not re.match(r"^[A-Za-z0-9_.-]+$", wa["conta"]):
         raise ErroConfig("whatsapp.conta é o nome de uma conta do wacli (letras, números, ponto, hífen)")
     for campo, minimo, maximo in (("contexto_mensagens", 0, 50), ("intervalo_s", 1, 60)):

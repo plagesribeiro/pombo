@@ -120,8 +120,9 @@ Dois jeitos (`whatsapp.meu_numero`):
   transcrição; áudio de mais de 10 s, com o `ffmpeg` instalado, tem só os primeiros 6 s transcritos para conferir). O
   áudio dos outros nunca chama o bot.
 - Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
-- No WhatsApp, o andamento é uma reação na mensagem: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando
-  ferramentas e ✅ quando a resposta sai (no máximo uma troca a cada 3 s).
+- No WhatsApp, o andamento é uma reação na mensagem (`whatsapp.reacoes`): `simples` (padrão) é 👀 ao receber e ✅
+  quando a resposta sai; `etapas` mostra também 🎧 ouvindo, 🧠 pensando e 🛠️ ferramentas (no máximo uma troca a cada
+  3 s; cada troca também chega no celular do dono do número); `nenhuma` desliga.
 - Nas conversas dos outros, o agente é avisado de que a resposta aparece para todos daquela conversa.
 - Só um computador por número: dois `wacli` no mesmo número respondem em dobro.
 - "O bot do WhatsApp não liga": `pombo whatsapp status --bot ID` e `pombo log ID -n 80`. Se o WhatsApp desconectou o

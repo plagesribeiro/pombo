@@ -198,9 +198,10 @@ de conversas em pedaços, por horas, e isso pesa no WhatsApp do celular; o Pombo
 depois. Para mais: `--historico 30` (dias) ou `--historico 0` (o que o celular quiser). Para refazer o pareamento:
 `pombo whatsapp parear --de-novo`.
 
-Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A reação na sua mensagem
-mostra a etapa: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando ferramentas. A resposta chega começando com 🐦
-e a reação vira ✅.
+Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A sua mensagem ganha 👀, a
+resposta chega começando com 🐦 e a reação vira ✅. Com `whatsapp.reacoes=etapas`, a reação mostra também o que ele está
+fazendo (🎧 ouvindo, 🧠 pensando, 🛠️ usando ferramentas); cada troca chega no seu celular, por isso o padrão é só 👀 e
+✅ (`nenhuma` desliga).
 
 - **Gatilho:** por padrão, o bot só responde ao que começa com `pombo` (ou `@pombo`, `Pombo:`), e a conversa com você
   mesmo continua servindo para anotações. Para ele responder tudo ali: `pombo bots editar zap whatsapp.gatilho_sempre=false`.

@@ -517,8 +517,9 @@ class Reacao:
 
     INTERVALO = 3
 
-    def __init__(self, canal, chat, mid, remetente=None):
+    def __init__(self, canal, chat, mid, remetente=None, etapas=False):
         self.canal, self.chat, self.mid, self.remetente = canal, chat, mid, remetente
+        self.etapas = etapas  # False: só 👀 e ✅ (cada troca de reação também chega no celular do dono do número)
         self._cond = threading.Condition()
         self._desejada, self._enviada, self._fechar, self._ultima = "👀", None, False, 0.0
         self._thread = threading.Thread(target=self._laco, daemon=True)
@@ -547,7 +548,7 @@ class Reacao:
             self.canal.r.log(f"não deu para reagir na mensagem ({e})")
 
     def mostrar(self, texto, forcar=False):
-        etapa = etapa_de(texto)
+        etapa = etapa_de(texto) if self.etapas else None
         if etapa:
             with self._cond:
                 if not self._fechar:
@@ -718,9 +719,10 @@ class CanalWhatsApp:
                     self._midia_em_envio.pop(chat, None)
 
     def andamento(self, chat, responder_a, inicio="", prefixo=""):
-        if not responder_a:
+        modo = self.cfg().get("reacoes") or "simples"
+        if not responder_a or modo == "nenhuma":
             return SemReacao()  # rotinas: não há mensagem para marcar
-        return Reacao(self, chat, responder_a, self._remetentes.get(responder_a))
+        return Reacao(self, chat, responder_a, self._remetentes.get(responder_a), etapas=modo == "etapas")
 
     def baixar(self, anexo, pasta):
         chat, mid = anexo
