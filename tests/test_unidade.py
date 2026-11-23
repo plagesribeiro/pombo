@@ -729,12 +729,12 @@ class PastaPadrao(unittest.TestCase):
         self.assertEqual(self.chegar(ana, "pombo, resume isso")["texto"], "resume isso")
         self.assertIsNone(self.chegar(ana, "pombo, faz", de_mim=False))  # só as suas mensagens chamam o bot
 
-    def test_audio_nas_conversas_dos_outros_nao_e_transcrito(self):
+    def test_audio_seu_nas_conversas_dos_outros(self):
         self.r.cfg["transcricao_cmd"] = ["echo", "{arquivo}"]
         ana = "5531933334444@s.whatsapp.net"
-        self.assertIsNone(self.chegar(ana, midia="audio"))  # seria transcrever todo áudio seu, de qualquer conversa
-        self.assertIsNotNone(self.chegar(ana, midia="audio", legenda="pombo, transcreve"))
-        self.assertTrue(self.chegar(self.eu, midia="audio")["exigir_gatilho"])  # na conversa "eu" continua valendo
+        self.assertTrue(self.chegar(ana, midia="audio")["exigir_gatilho"])  # o seu: transcreve e confere o "Pombo"
+        self.assertIsNone(self.chegar(ana, midia="audio", de_mim=False))  # o dos outros nunca chama o bot
+        self.assertFalse(self.chegar(ana, midia="audio", legenda="pombo, transcreve")["exigir_gatilho"])
 
     def test_conversa_de_outra_pasta_e_dela(self):
         self.assertEqual(self.c.liberacao(self.grupo_mestrado), (None, False))
