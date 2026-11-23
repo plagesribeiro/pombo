@@ -641,6 +641,43 @@ class VariosBotsNoMesmoWhatsApp(unittest.TestCase):
         self.assertTrue(conversas[0].endswith("@g.us"))
 
 
+class Parear(unittest.TestCase):
+    def test_pede_pouco_historico_e_pausa_os_bots(self):
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        from pombo import cli
+        from tests import wacli_falso
+        store = tempfile.mkdtemp(prefix="wacli-falso-")
+        wacli_falso.preparar(store)
+        for b in config.listar_ids():
+            config.remover_bot(b)
+        script = os.path.join(RAIZ, "tests", "wacli_falso.py")
+        config.salvar_bot("zap", {"canal": "whatsapp", "pasta": store,
+                                  "whatsapp": {"wacli": script, "pasta_dados": store}})
+        args = argparse.Namespace(acao="parear", grupo_acao=None, bot="zap", conta=None, wacli=None, nome=None,
+                                  so_o_grupo=False, telefone="+55 31 99999-0000", historico=3, por_conversa=50,
+                                  de_novo=True)
+        chamadas, ativo_durante = [], []
+
+        def chamar(cmd):
+            chamadas.append(cmd)
+            ativo_durante.append(config.carregar_bot("zap")["ativo"])
+            return 0
+        with mock.patch("subprocess.call", side_effect=chamar), contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaises(SystemExit) as saida:
+            cli.cmd_whatsapp(args)
+        self.assertEqual(saida.exception.code, 0)
+        self.assertEqual(chamadas[0][-2:], ["auth", "logout"])  # --de-novo desfaz o pareamento antes
+        self.assertEqual(chamadas[1][-7:], ["auth", "--phone", "+55 31 99999-0000", "--history-days", "3",
+                                            "--history-max-per-chat", "50"])
+        self.assertEqual(ativo_durante, [False, False])  # o sync parado enquanto pareia
+        self.assertTrue(config.carregar_bot("zap")["ativo"])  # e religado no fim
+        sem_limite = argparse.Namespace(telefone=None, historico=0, por_conversa=0)
+        self.assertEqual(cli.comando_parear(sem_limite), [])
+
+
 def mock_wacli(script):
     """O `bots criar` procura o wacli no PATH: aqui ele acha o falso."""
     from unittest import mock

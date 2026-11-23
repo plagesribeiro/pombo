@@ -21,7 +21,9 @@ pombo bots ver ID                     # configuração completa em JSON (sem tok
 pombo bots editar ID campo=valor ...  # valores em JSON: true, 10, ["a","b"], {"k":"v"}; env.CHAVE=valor
 pombo bots criar ID --pasta P [--nome N] [--usuario 123] [--permissoes total|auto|lista]
 pombo bots criar ID --pasta P --canal whatsapp [--numero-separado] [--conta C]   # bot do WhatsApp
-pombo whatsapp parear [--bot ID] [--telefone +55...]   # QR (ou código) no terminal: só o usuário faz, no celular
+pombo whatsapp parear [--bot ID] [--telefone +55...] [--historico 3] [--por-conversa 50] [--de-novo]
+                                      # QR (ou código) no terminal: só o usuário faz, no celular. Pede pouco histórico
+                                      # (o celular manda o histórico por horas e isso pesa nele); --de-novo refaz
 pombo whatsapp status [--bot ID]      # se está pareado e qual número
 pombo bots criar ID --pasta P --canal whatsapp --grupo "🎓 Nome"   # bot novo já com um grupo só do usuário
 pombo whatsapp grupo criar --bot ID [--nome N] [--so-o-grupo]     # cria um grupo só do usuário e liga ao bot

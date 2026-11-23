@@ -1,5 +1,6 @@
 """Linha de comando. Tudo o que o painel faz, dá para fazer por aqui (e o Claude também consegue)."""
 import argparse
+import contextlib
 import getpass
 import json
 import os
@@ -36,7 +37,8 @@ Uso comum:
   pombo rotinas rodar ID ROTINA     roda agora (o resultado vai para o Telegram)
   pombo rotinas remover ID ROTINA
 
-  pombo whatsapp parear [--telefone +55...]   conecta o WhatsApp neste computador (QR ou código)
+  pombo whatsapp parear [--telefone +55...] [--historico 3] [--de-novo]
+                                    conecta o WhatsApp neste computador (QR ou código), com pouco histórico
   pombo whatsapp status             se o WhatsApp está pareado e qual número
   pombo whatsapp grupo criar --bot ID [--nome N]     cria um grupo só seu e liga ao bot (sem gatilho)
   pombo whatsapp grupo ligar --bot ID --nome N|JID   liga ao bot um grupo que já existe
@@ -316,9 +318,10 @@ def bots_do_mesmo_whatsapp(wa):
     return ids
 
 
-def criar_grupo(wa, nome):
-    """Cria um grupo só com você. O wacli precisa do banco livre: pausa por alguns segundos os bots deste WhatsApp
-    (o sync deles para), cria e religa. Devolve o JID."""
+@contextlib.contextmanager
+def bots_pausados(wa):
+    """Para o que precisa do banco do wacli só para si (criar grupo, parear): pausa os bots deste WhatsApp (o sync
+    deles para), espera o banco ficar livre e, no fim, religa."""
     import time
     from .whatsapp import ErroWhatsApp, Wacli
     w = Wacli(wa)
@@ -329,7 +332,7 @@ def criar_grupo(wa, nome):
         config.gravar_json(config.arq_bot(b), config.validar_bot(c))
     try:
         if pausados:
-            print(f"Pausando por alguns segundos: {', '.join(pausados)}…")
+            print(f"Pausando enquanto isso: {', '.join(pausados)}…")
         fim = time.time() + 60
         while True:
             try:
@@ -340,18 +343,26 @@ def criar_grupo(wa, nome):
             if time.time() > fim:
                 sair("O wacli continua ocupado (outro `wacli sync` rodando fora do Pombo?). Pare ele e tente de novo.")
             time.sleep(1)
-        try:
-            jid = w.criar_grupo(nome)
-        except ErroWhatsApp as e:
-            sair(f"Não consegui criar o grupo: {e}\nDá para criar no celular (um grupo só com você) e ligar com: "
-                 f'pombo whatsapp grupo ligar --bot ID --nome "{nome}"')
-        print(f'Grupo "{nome}" criado ({jid}).')
-        return jid
+        yield w
     finally:
         for b in pausados:
             c = config.carregar_bot(b)
             c["ativo"] = True
             config.gravar_json(config.arq_bot(b), config.validar_bot(c))
+
+
+def criar_grupo(wa, nome):
+    """Cria um grupo só com você (o wacli precisa do banco livre: os bots deste WhatsApp pausam por uns segundos).
+    Devolve o JID."""
+    from .whatsapp import ErroWhatsApp
+    with bots_pausados(wa) as w:
+        try:
+            jid = w.criar_grupo(nome)
+        except ErroWhatsApp as e:
+            sair(f"Não consegui criar o grupo: {e}\nDá para criar no celular (um grupo só com você) e ligar com: "
+                 f'pombo whatsapp grupo ligar --bot ID --nome "{nome}"')
+    print(f'Grupo "{nome}" criado ({jid}).')
+    return jid
 
 
 def explicar_whatsapp(bot_id, cfg):
@@ -394,17 +405,32 @@ def cmd_whatsapp(a):
         else:
             print("Não está pareado. Rode: pombo whatsapp parear")
         return
-    cmd = w.base() + ["auth"]
-    if a.telefone:
-        cmd += ["--phone", a.telefone]
-    print("No celular: WhatsApp > Configurações > Aparelhos conectados > Conectar um aparelho." +
-          (" Toque em \"Conectar com número de telefone\" e digite o código que aparecer aqui." if a.telefone else
-           " Leia o QR que vai aparecer aqui."))
-    print("A primeira sincronização pode levar alguns minutos. Pode fechar com Ctrl+C quando ela acabar.\n")
-    rc = subprocess.call(cmd)
+    cmd = w.base() + ["auth"] + comando_parear(a)
+    with bots_pausados(wa):
+        if a.de_novo:
+            print("Desfazendo o pareamento atual (o aparelho some de Aparelhos conectados no celular)…")
+            subprocess.call(w.base() + ["auth", "logout"])
+        print("No celular: WhatsApp > Configurações > Aparelhos conectados > Conectar um aparelho." +
+              (" Toque em \"Conectar com número de telefone\" e digite o código que aparecer aqui." if a.telefone else
+               " Leia o QR que vai aparecer aqui."))
+        print(("Histórico: " + (f"só os últimos {a.historico} dia(s)" if a.historico else "o que o celular quiser mandar") +
+               (f", até {a.por_conversa} mensagens por conversa" if a.por_conversa else "") +
+               ". O Pombo não precisa de histórico: quanto menos, mais rápido e menos peso no celular.\n"))
+        rc = subprocess.call(cmd)
     if rc == 0:
-        print("\nPronto. O serviço do Pombo liga o bot do WhatsApp em até 30 s (pombo status).")
+        print("\nPronto. O serviço do Pombo liga o bot do WhatsApp em alguns segundos (pombo status).")
     sys.exit(rc)
+
+
+def comando_parear(a):
+    """O resto do `wacli auth`. Por padrão pede pouco histórico: o celular manda o histórico em pedaços, por horas,
+    para o aparelho novo (a janela padrão é de uns 3 meses), e o Pombo só precisa das mensagens que chegam depois."""
+    args = ["--phone", a.telefone] if a.telefone else []
+    if a.historico:
+        args += ["--history-days", str(a.historico)]
+    if a.por_conversa:
+        args += ["--history-max-per-chat", str(a.por_conversa)]
+    return args
 
 
 def cmd_whatsapp_grupo(a, w):
@@ -563,6 +589,11 @@ def montar():
     s.add_argument("--so-o-grupo", action="store_true", help="com grupo: o bot passa a escutar só esse grupo")
     s.add_argument("--conta", help="conta do wacli (--account)")
     s.add_argument("--telefone", help="parear por código, sem QR (ex.: +55 31 99999-0000)")
+    s.add_argument("--historico", type=int, default=3,
+                   help="parear: dias de histórico que o celular manda (padrão 3; 0 = o que o celular quiser, ~3 meses)")
+    s.add_argument("--por-conversa", type=int, default=50,
+                   help="parear: no máximo quantas mensagens por conversa (padrão 50; 0 = sem limite)")
+    s.add_argument("--de-novo", action="store_true", help="parear: desfaz o pareamento atual e pareia outra vez")
     s.add_argument("--wacli", help="caminho do wacli, se não estiver no PATH")
     s.set_defaults(fn=cmd_whatsapp)
 

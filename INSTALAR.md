@@ -146,7 +146,8 @@ ou um número só do bot.
    pombo bots criar zap --pasta ~/pessoal --canal whatsapp                     # no número dela
    pombo bots criar zap --pasta ~/pessoal --canal whatsapp --numero-separado   # num número só do bot
    ```
-3. **A pessoa pareia, no terminal** (você não consegue fazer isso por ela): `pombo whatsapp parear`. Ela lê o QR em
+3. **A pessoa pareia, no terminal** (você não consegue fazer isso por ela): `pombo whatsapp parear` (pede só 3 dias
+   de histórico: o Pombo não precisa de mais, e o histórico inteiro pesa no celular por horas). Ela lê o QR em
    WhatsApp → Aparelhos conectados → Conectar um aparelho (ou usa `--telefone +55...` e digita o código). A primeira
    sincronização pode levar alguns minutos.
 4. Confira com `pombo whatsapp status` e `pombo status` (o bot aparece com o número).

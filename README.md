@@ -193,6 +193,11 @@ pombo bots criar zap --pasta ~/pessoal --canal whatsapp
 pombo whatsapp parear                                 # lê o QR no celular: Aparelhos conectados
 ```
 
+O pareamento pede **pouco histórico** (3 dias, até 50 mensagens por conversa). Sem limite, o celular manda uns 3 meses
+de conversas em pedaços, por horas, e isso pesa no WhatsApp do celular; o Pombo só precisa das mensagens que chegam
+depois. Para mais: `--historico 30` (dias) ou `--historico 0` (o que o celular quiser). Para refazer o pareamento:
+`pombo whatsapp parear --de-novo`.
+
 Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A reação na sua mensagem
 mostra a etapa: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando ferramentas. A resposta chega começando com 🐦
 e a reação vira ✅.
