@@ -698,7 +698,7 @@ class Parear(unittest.TestCase):
             ativo_durante.append(config.carregar_bot("zap")["ativo"])
             return 0
         with mock.patch("subprocess.call", side_effect=chamar), contextlib.redirect_stdout(io.StringIO()), \
-                self.assertRaises(SystemExit) as saida:
+                mock.patch.object(cli, "pareado", return_value=True), self.assertRaises(SystemExit) as saida:
             cli.cmd_whatsapp(args)
         self.assertEqual(saida.exception.code, 0)
         self.assertEqual(chamadas[0][-2:], ["auth", "logout"])  # --de-novo desfaz o pareamento antes
@@ -706,6 +706,22 @@ class Parear(unittest.TestCase):
                                             "--history-max-per-chat", "50"])
         self.assertEqual(ativo_durante, [False, False])  # o sync parado enquanto pareia
         self.assertTrue(config.carregar_bot("zap")["ativo"])  # e religado no fim
+        # sessão velha presa: o wacli diz "Authenticated" sem parear; o Pombo limpa e tenta de novo, e confere no fim
+        chamadas.clear()
+        estados = iter([False, True, True])
+        args.de_novo = False
+        with mock.patch("subprocess.call", side_effect=chamar), contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.object(cli, "pareado", side_effect=lambda w: next(estados)), \
+                self.assertRaises(SystemExit) as saida:
+            cli.cmd_whatsapp(args)
+        self.assertEqual(saida.exception.code, 0)
+        self.assertEqual([c[-1] if c[-2] != "auth" else c[-2] + " " + c[-1] for c in chamadas][1], "auth logout")
+        self.assertEqual(len(chamadas), 3)  # auth, logout, auth
+        with mock.patch("subprocess.call", return_value=0), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()), mock.patch.object(cli, "pareado", return_value=False), \
+                self.assertRaises(SystemExit) as saida:
+            cli.cmd_whatsapp(args)
+        self.assertEqual(saida.exception.code, 1)  # não diz "Pronto" sem ter pareado
         sem_limite = argparse.Namespace(telefone=None, historico=0, por_conversa=0)
         self.assertEqual(cli.comando_parear(sem_limite), [])
 

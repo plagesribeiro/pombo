@@ -416,10 +416,26 @@ def cmd_whatsapp(a):
         print(("Histórico: " + (f"só os últimos {a.historico} dia(s)" if a.historico else "o que o celular quiser mandar") +
                (f", até {a.por_conversa} mensagens por conversa" if a.por_conversa else "") +
                ". O Pombo não precisa de histórico: quanto menos, mais rápido e menos peso no celular.\n"))
-        rc = subprocess.call(cmd)
-    if rc == 0:
-        print("\nPronto. O serviço do Pombo liga o bot do WhatsApp em alguns segundos (pombo status).")
-    sys.exit(rc)
+        subprocess.call(cmd)
+        if not pareado(w):
+            # sessão velha presa (o aparelho foi removido no celular): o wacli tenta com ela, leva um "logged out" e
+            # ainda escreve "Authenticated". Limpa a sessão e tenta mais uma vez, agora pedindo um código novo
+            print("\nA sessão antiga estava presa (o aparelho tinha sido removido no celular). Limpando e tentando de novo…")
+            subprocess.call(w.base() + ["auth", "logout"])
+            subprocess.call(cmd)
+    if not pareado(w):
+        sair("\nNão pareou. Rode de novo: pombo whatsapp parear" + (f" --bot {a.bot}" if a.bot else "") + " --de-novo")
+    print("\nPronto. O serviço do Pombo liga o bot do WhatsApp em alguns segundos (pombo status).")
+    sys.exit(0)
+
+
+def pareado(w):
+    """O wacli às vezes diz "Authenticated" sem ter pareado: confere pelo auth status."""
+    from .whatsapp import ErroWhatsApp
+    try:
+        return bool(w.status().get("authenticated"))
+    except ErroWhatsApp:
+        return False
 
 
 def comando_parear(a):
