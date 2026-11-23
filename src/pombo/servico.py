@@ -32,7 +32,11 @@ class Servico:
     # ---------------------------------------------------------------- bots
 
     def _token(self, bot_id, cfg):
-        """O token só é lido de novo quando o arquivo do bot ou o segredos.json mudam (o Keychain é lento)."""
+        """O token só é lido de novo quando o arquivo do bot ou o segredos.json mudam (o Keychain é lento).
+        Bot do WhatsApp não tem token: a "credencial" é a conta do wacli (mudou, o bot religa)."""
+        if cfg.get("canal") == "whatsapp":
+            wa = cfg.get("whatsapp") or {}
+            return "wacli:" + "|".join(str(wa.get(k) or "") for k in ("wacli", "conta", "pasta_dados", "espaco_entre_envios"))
         chave = tuple(_mtime(p) for p in (config.arq_bot(bot_id), config.caminho("segredos.json")))
         guardado = self._tokens.get(bot_id)
         if guardado and guardado[0] == chave:
@@ -96,8 +100,7 @@ class Servico:
         dono = r.dono()
         if not dono:
             raise config.ErroConfig("libere pelo menos um usuário antes de mandar a mensagem de teste")
-        from .telegram import responder
-        responder(r.tg, dono, f"✅ Teste do painel: o bot **{r.cfg['nome']}** está ligado em {self.geral['nome_maquina']}.", log=r.log)
+        r.canal.responder(dono, f"✅ Teste do painel: o bot **{r.cfg['nome']}** está ligado em {self.geral['nome_maquina']}.")
 
     def estado_bot(self, bot_id):
         with self._trava:
@@ -165,10 +168,21 @@ class Servico:
         acao = atualizar.decidir(marcador, self.inicio, ocioso)
         if acao == "reiniciar":
             log(f"atualização: reiniciando o serviço para carregar {marcador.get('depois')}")
+            self.parar_canais()
             atualizar.reiniciar_processo()
         elif acao == "avisar":
             if self._avisar_atualizacao(marcador) or time.time() - self.inicio > 600:
                 atualizar.apagar()
+
+    def parar_canais(self):
+        """Antes de trocar o processo: o que roda por fora (o wacli sync do WhatsApp) não pode ficar órfão."""
+        with self._trava:
+            runners = list(self.runners.values())
+        for r in runners:
+            try:
+                r.canal.parar()
+            except Exception:
+                log(f'erro ao parar o canal do bot "{r.id}":\n' + traceback.format_exc())
 
     def _avisar_atualizacao(self, marcador):
         """Manda o ✅ para o dono do bot que pediu (ou, sem pedido de bot, de quem for o dono do computador)."""
@@ -182,11 +196,10 @@ class Servico:
         if not r:
             log(f"atualização aplicada ({marcador.get('depois')}); nenhum bot ligado para avisar")
             return True
-        from .telegram import responder
         try:
-            responder(r.tg, r.dono(), atualizar.mensagem(marcador, self.geral["nome_maquina"]), log=r.log)
+            r.canal.responder(r.dono(), atualizar.mensagem(marcador, self.geral["nome_maquina"]))
         except Exception as e:
-            log(f"atualização aplicada, mas o aviso no Telegram falhou (tento de novo): {e}")
+            log(f"atualização aplicada, mas o aviso falhou (tento de novo): {e}")
             return False
         log(f"atualização aplicada ({marcador.get('depois')}); aviso mandado pelo bot \"{r.id}\"")
         return True

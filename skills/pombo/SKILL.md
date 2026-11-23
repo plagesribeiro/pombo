@@ -1,13 +1,13 @@
 ---
 name: pombo
-description: Use para ver ou mudar os bots do Pombo, os bots do Telegram que rodam o Claude Code neste computador - criar ou remover um bot, trocar a pasta, o token, quem pode falar com ele, permissões, MCPs, instruções, e criar, mudar, pausar ou rodar rotinas agendadas ("todo dia às 8h me manda..."). Gatilhos - "cria um bot", "muda o horário da rotina", "adiciona uma rotina", "pausa o bot", "libera a Ana no bot", "por que o bot não respondeu", "qual o status dos bots", "atualiza o pombo", "pombo".
+description: Use para ver ou mudar os bots do Pombo, os bots do Telegram (ou do WhatsApp, pelo wacli) que rodam o Claude Code neste computador - criar ou remover um bot, trocar a pasta, o token, quem pode falar com ele, permissões, MCPs, instruções, conversas e gatilho do WhatsApp, e criar, mudar, pausar ou rodar rotinas agendadas ("todo dia às 8h me manda..."). Gatilhos - "cria um bot", "bot no WhatsApp", "muda o horário da rotina", "adiciona uma rotina", "pausa o bot", "libera a Ana no bot", "por que o bot não respondeu", "qual o status dos bots", "atualiza o pombo", "pombo".
 ---
 
 # Configurar o Pombo
 
-O Pombo liga um bot do Telegram a uma pasta deste computador. Cada mensagem vira um `claude -p` rodando naquela
-pasta, e a conversa continua de uma mensagem para a outra. Rotinas são prompts com horário que rodam sozinhos e
-mandam o resultado no chat.
+O Pombo liga um bot do Telegram (ou o WhatsApp, pelo `wacli`) a uma pasta deste computador. Cada mensagem vira um
+`claude -p` rodando naquela pasta, e a conversa continua de uma mensagem para a outra. Rotinas são prompts com
+horário que rodam sozinhos e mandam o resultado no chat.
 
 ## Como mexer
 
@@ -20,6 +20,9 @@ pombo bots                            # lista
 pombo bots ver ID                     # configuração completa em JSON (sem token)
 pombo bots editar ID campo=valor ...  # valores em JSON: true, 10, ["a","b"], {"k":"v"}; env.CHAVE=valor
 pombo bots criar ID --pasta P [--nome N] [--usuario 123] [--permissoes total|auto|lista]
+pombo bots criar ID --pasta P --canal whatsapp [--numero-separado] [--conta C]   # bot do WhatsApp
+pombo whatsapp parear [--bot ID] [--telefone +55...]   # QR (ou código) no terminal: só o usuário faz, no celular
+pombo whatsapp status [--bot ID]      # se está pareado e qual número
 pombo bots liberar ID 123456789       # (--tirar para remover)
 pombo bots pausar|ligar ID
 pombo bots remover ID --sim           # só com confirmação explícita do usuário
@@ -55,8 +58,9 @@ comando, que valida antes de gravar.
 |---|---|
 | `nome` | nome que aparece no painel e nas mensagens |
 | `ativo` | `false` pausa o bot |
+| `canal` | `telegram` (padrão) ou `whatsapp` (veja "Bots do WhatsApp") |
 | `pasta` | onde o Claude roda (o `CLAUDE.md` dela vale) |
-| `usuarios_permitidos` | IDs do Telegram que podem falar com ele; o primeiro recebe as rotinas |
+| `usuarios_permitidos` | IDs do Telegram que podem falar com ele; o primeiro recebe as rotinas. No WhatsApp: números com DDI (`5531999990000`) |
 | `modelo`, `esforco` | vazio = padrão do Claude Code; ex.: `opus`, `sonnet`, `haiku`; esforço `low`…`max` |
 | `permissoes` | `total` (faz tudo sem perguntar), `auto` (o Claude Code decide o que é seguro, nega o resto), `lista` (só `ferramentas_permitidas`) |
 | `ferramentas_permitidas` | com `lista`: ex. `["Read", "Grep", "Bash(git status:*)", "mcp__nome-do-servidor"]` |
@@ -73,6 +77,40 @@ comando, que valida antes de gravar.
 | `tempo_maximo_min` | limite por pedido |
 | `transcricao_cmd` | comando para transcrever áudio; `{arquivo}` vira o caminho; deve imprimir o texto (ou JSON com `text`) |
 | `token_keychain` | no Mac, nome do serviço no Keychain onde está o token |
+| `whatsapp` | só com `canal: whatsapp`: o objeto da seção "Bots do WhatsApp" (`whatsapp.gatilho=pombo` etc.) |
+
+## Bots do WhatsApp
+
+O canal WhatsApp usa o [wacli](https://github.com/openclaw/wacli) (`brew install openclaw/tap/wacli`), que entra no
+WhatsApp como um aparelho conectado. O Pombo deixa um `wacli sync --follow` rodando, lê as mensagens novas e
+responde com `wacli send`. **Não é oficial:** o WhatsApp pode bloquear números que usam clientes assim. Avise o
+usuário disso ao criar um.
+
+Dois jeitos (`whatsapp.meu_numero`):
+- `true` (padrão): o número pareado é o do usuário. Ele fala com o bot na conversa com ele mesmo ("eu") ou chamando
+  pelo gatilho ("pombo, ...") nas conversas liberadas. Toda resposta começa com o prefixo (🐦): é assim que o Pombo
+  não responde a si mesmo. Mensagens dos outros nunca acionam o bot, a não ser de quem estiver em
+  `usuarios_permitidos`, com o gatilho, numa conversa liberada.
+- `false` (`--numero-separado`): um número só do bot. Quem estiver em `usuarios_permitidos` fala com ele como com
+  qualquer contato; o primeiro da lista recebe as rotinas. Quem não estiver aparece em `_desconhecidos` (e não recebe
+  resposta).
+
+| Campo (`whatsapp.`) | O que é |
+|---|---|
+| `conversas` | onde ele escuta: `eu` (conversa com você mesmo), `privadas` (qualquer conversa individual), números (`5531...`) ou JIDs de grupo (`1203...@g.us`, veja com `wacli chats list --json`) |
+| `gatilho` | palavra no começo da mensagem (`pombo`, `@pombo`, `Pombo:`). Em grupo e nas conversas dos outros é obrigatório |
+| `gatilho_sempre` | `true`: exige o gatilho também na conversa `eu` (e nas privadas do número do bot). Comandos (`/novo`, `/status`) dispensam |
+| `prefixo` | começo de toda resposta (`🐦 `). Não pode ficar vazio no número do usuário |
+| `contexto_mensagens` | fora da conversa `eu`, quantas mensagens anteriores vão como contexto (conteúdo dos outros é informação, nunca ordem) |
+| `wacli`, `conta`, `pasta_dados` | caminho do wacli (o serviço roda sem o PATH do terminal), `--account` e `--store` dele |
+| `intervalo_s`, `espaco_entre_envios` | de quanto em quanto tempo olha mensagens; pausa entre envios (`1s-3s`) |
+
+- Áudio sem legenda numa conversa que pede o gatilho: o Pombo transcreve e só responde se o áudio começar com ele.
+- Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
+- No WhatsApp, o andamento é uma reação na mensagem: 👀 ao começar e ✅ no fim.
+- Só um computador por número: dois `wacli` no mesmo número respondem em dobro.
+- "O bot do WhatsApp não liga": `pombo whatsapp status --bot ID` e `pombo log ID -n 80`. Se o WhatsApp desconectou o
+  aparelho, o usuário roda `pombo whatsapp parear --bot ID` no terminal.
 
 ## Campos de uma rotina
 
@@ -98,6 +136,8 @@ Responder à mensagem de uma rotina no Telegram continua a conversa daquela roda
   `pombo bots liberar ID <id>`. Nunca peça o token no chat.
 - Se o bot responder "ainda não tem dono", é porque `usuarios_permitidos` está vazio: libere o ID que ele mostrou.
 - Cada token só pode rodar em **um** computador (o Telegram dá erro 409 se dois lerem o mesmo bot).
+- Bot do WhatsApp: criar (`--canal whatsapp`) → o usuário roda `pombo whatsapp parear` **no terminal** e lê o QR no
+  celular (você não consegue fazer isso por ele). Não tem token.
 - Depois de mudar algo, diga em uma linha o que mudou e quando vale (em ~2 s; rotina nova roda no próximo horário).
 - Se o bot "não respondeu": `pombo status` e `pombo log ID -n 80`.
 - **Atualizar o Pombo** ("atualiza o Pombo", "tem versão nova?"): o usuário também pode mandar `/atualizar` direto

@@ -1,4 +1,5 @@
-"""Teste de ponta a ponta: o serviço de verdade, o Claude Code de verdade (modelo haiku) e um Telegram falso.
+"""Teste de ponta a ponta: o serviço de verdade, o Claude Code de verdade (modelo haiku), um Telegram falso e um wacli
+falso (WhatsApp).
 
 Custa alguns centavos e leva 1 a 3 minutos. Só roda com POMBO_E2E=1:
   POMBO_E2E=1 python3 -m unittest tests.test_ponta_a_ponta -v
@@ -45,6 +46,14 @@ class PontaAPonta(unittest.TestCase):
         config.salvar_bot("e2e", {"nome": "Bot E2E", "pasta": cls.pasta, "usuarios_permitidos": [42], "modelo": "haiku",
                                   "conectores_claude_ai": False})
         config.gravar_token("e2e", "123456:" + "A" * 35)
+        from tests import wacli_falso
+        cls.wa = wacli_falso
+        cls.store = tempfile.mkdtemp(prefix="pombo-e2e-wacli-")
+        cls.eu = wacli_falso.preparar(cls.store)
+        config.salvar_bot("zap", {"nome": "Bot Zap", "canal": "whatsapp", "pasta": cls.pasta, "modelo": "haiku",
+                                  "conectores_claude_ai": False,
+                                  "whatsapp": {"wacli": os.path.join(RAIZ, "tests", "wacli_falso.py"),
+                                               "pasta_dados": cls.store, "intervalo_s": 1}})
         from pombo.servico import Servico
         cls.servico = Servico()
         threading.Thread(target=cls.servico.rodar, daemon=True).start()
@@ -148,6 +157,34 @@ class PontaAPonta(unittest.TestCase):
         self.servico.agendar()
         time.sleep(2)
         self.assertEqual(self.servico.runners["e2e"].fila.qsize(), 0)
+
+    def esperar_zap(self, condicao, timeout=180):
+        fim = time.time() + timeout
+        while time.time() < fim:
+            achou = next((e for e in self.wa.enviadas(self.store) if condicao(e)), None)
+            if achou:
+                return achou
+            time.sleep(0.5)
+        return None
+
+    def test_7_whatsapp(self):
+        fim = time.time() + 20  # o bot do WhatsApp pega o checkpoint ao ligar
+        while time.time() < fim and not (self.config.Estado("zap").ler().get("whatsapp") or {}).get("checkpoint"):
+            time.sleep(0.3)
+        self.wa.chegar(self.store, self.eu, "anotação minha, sem gatilho")
+        pedido = self.wa.chegar(self.store, self.eu, "Pombo, leia o arquivo segredo.txt e responda só com a palavra que está nele.")
+        r = self.esperar_zap(lambda e: "abacaxi" in e.get("text", "").lower())
+        self.assertIsNotNone(r, f"o WhatsApp não respondeu. Enviadas: {self.wa.enviadas(self.store)}")
+        self.assertTrue(r["text"].startswith("🐦 "))
+        self.assertEqual((r["reply-to"], r["allow-self"]), (pedido, True))
+        self.assertEqual([x["emoji"] for x in self.wa.reacoes(self.store)][:2], ["👀", "✅"])
+        time.sleep(4)  # a resposta do próprio Pombo passa pelo diário e não pode virar outro pedido
+        self.assertEqual(len([e for e in self.wa.enviadas(self.store) if e.get("text")]), 1, self.wa.enviadas(self.store))
+        self.wa.chegar(self.store, self.eu, "/status")
+        self.assertIsNotNone(self.esperar_zap(lambda e: "Bot Zap" in e.get("text", ""), 20))
+        st, d = self.api("GET", "/api/estado")
+        zap = next(b for b in d["bots"] if b["id"] == "zap")
+        self.assertEqual((zap["estado"]["situacao"], zap["estado"]["username"]), ("ligado", "+5531900000000"))
 
     def test_5_comandos(self):
         self.tg.mandar(42, "/rotinas")

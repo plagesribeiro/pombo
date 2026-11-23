@@ -9,7 +9,7 @@ import urllib.request
 
 from . import VERSAO, config, registro, rotinas
 
-AJUDA = """Pombo: um bot do Telegram para cada pasta, rodando o Claude Code neste computador.
+AJUDA = """Pombo: um bot do Telegram (ou do WhatsApp) para cada pasta, rodando o Claude Code neste computador.
 
 Configuração: {base}
 
@@ -20,9 +20,11 @@ Uso comum:
   pombo status                      como está cada bot
 
   pombo bots                        lista os bots
-  pombo bots criar ID --pasta P     cria um bot (depois: token)
+  pombo bots criar ID --pasta P     cria um bot do Telegram (depois: token)
+  pombo bots criar ID --pasta P --canal whatsapp [--numero-separado]
+                                    cria um bot do WhatsApp (depois: pombo whatsapp parear)
   pombo bots token ID               grava o token do @BotFather (pergunta sem mostrar)
-  pombo bots liberar ID USUARIO     libera um ID do Telegram para falar com o bot
+  pombo bots liberar ID USUARIO     libera um ID do Telegram (ou número de WhatsApp) para falar com o bot
   pombo bots ver ID                 mostra a configuração (JSON, sem token)
   pombo bots editar ID campo=valor  muda qualquer campo (valores em JSON: true, 10, ["a","b"])
   pombo bots pausar|ligar|remover ID
@@ -32,6 +34,9 @@ Uso comum:
   pombo rotinas editar ID ROTINA campo=valor
   pombo rotinas rodar ID ROTINA     roda agora (o resultado vai para o Telegram)
   pombo rotinas remover ID ROTINA
+
+  pombo whatsapp parear [--telefone +55...]   conecta o WhatsApp neste computador (QR ou código)
+  pombo whatsapp status             se o WhatsApp está pareado e qual número
 
   pombo geral [campo=valor]         nome do computador, como os bots chamam você, seu ID do Telegram
   pombo log [ID] [-n 80]            últimas linhas do log
@@ -117,7 +122,8 @@ def cmd_bots(a):
         for b in ids:
             try:
                 cfg = config.carregar_bot(b)
-                tok = "com token" if (cfg.get("token_keychain") or config.token_do_bot(b, cfg)) else "SEM TOKEN"
+                tok = ("WhatsApp" if cfg["canal"] == "whatsapp" else
+                       "com token" if (cfg.get("token_keychain") or config.token_do_bot(b, cfg)) else "SEM TOKEN")
                 print(f"- {b:<14} {cfg['nome']:<20} {cfg['pasta']}  [{'ativo' if cfg['ativo'] else 'pausado'}, {tok}, "
                       f"{len(cfg['usuarios_permitidos'])} usuário(s), {len(cfg['rotinas'])} rotina(s)]")
             except config.ErroConfig as e:
@@ -131,10 +137,16 @@ def cmd_bots(a):
         if not a.pasta:
             sair("faltou --pasta (a pasta onde o bot trabalha)")
         cfg = dict(config.BOT_PADRAO)
-        cfg.update({"nome": a.nome or a.id, "pasta": a.pasta, "usuarios_permitidos": a.usuario or config.usuarios_iniciais(),
+        canal = a.canal or "telegram"
+        cfg.update({"nome": a.nome or a.id, "pasta": a.pasta, "canal": canal,
+                    "usuarios_permitidos": a.usuario or config.usuarios_iniciais(canal),
                     "permissoes": a.permissoes or "total"})
-        config.salvar_bot(a.id, cfg)
+        if canal == "whatsapp":
+            cfg["whatsapp"] = whatsapp_inicial(a)
+        cfg = config.salvar_bot(a.id, cfg)
         print(f'Bot "{a.id}" criado em {config.arq_bot(a.id)}.')
+        if canal == "whatsapp":
+            return explicar_whatsapp(a.id, cfg)
         if not config.token_do_bot(a.id, cfg):
             print(f"Próximo passo: pombo bots token {a.id}   (cole o token do @BotFather)")
         if not cfg["usuarios_permitidos"]:
@@ -162,7 +174,7 @@ def cmd_bots(a):
         return
     if acao == "liberar":
         if not a.pares:
-            sair(f"faltou o ID do Telegram: pombo bots liberar {a.id} 123456789")
+            sair(f"faltou quem liberar: pombo bots liberar {a.id} 123456789 (ID do Telegram ou número de WhatsApp)")
         from .painel import liberar
         r = liberar(a.id, a.pares[0], remover=a.tirar)
         print(f"Usuários liberados: {', '.join(str(x) for x in r['usuarios_permitidos']) or 'nenhum'}")
@@ -263,14 +275,76 @@ def cmd_testar(a):
     from .execucao import BotRunner
     cfg = config.validar_bot(config.carregar_bot(a.id))
     token = config.token_do_bot(a.id, cfg)
-    if not token:
+    if cfg["canal"] == "telegram" and not token:
         sair(f'o bot "{a.id}" não tem token')
-    if not cfg["usuarios_permitidos"]:
-        sair(f'o bot "{a.id}" não tem nenhum usuário liberado')
     r = BotRunner(a.id, cfg, config.carregar_geral(), token)
-    uid = cfg["usuarios_permitidos"][0]
-    r.processar_mensagem({"chat": {"id": uid, "type": "private"}, "from": {"id": uid}, "message_id": None,
-                          "text": " ".join(a.texto) or "oi"})
+    chat = r.dono()
+    if not chat:
+        sair(f'o bot "{a.id}" não tem para quem responder (libere alguém ou, no WhatsApp, pareie o número)')
+    de = "eu" if cfg["canal"] == "whatsapp" and cfg["whatsapp"]["meu_numero"] else (cfg["usuarios_permitidos"] or [chat])[0]
+    r.processar_mensagem({"chat": chat, "id": None, "de": de, "texto": " ".join(a.texto) or "oi"})
+
+
+def whatsapp_inicial(a):
+    """Bot novo do WhatsApp. No seu número: só a conversa com você mesmo e o gatilho "pombo".
+    Num número só do bot: as conversas privadas de quem estiver liberado, sem precisar de gatilho."""
+    wa = dict(config.WHATSAPP_PADRAO)
+    if a.numero_separado:
+        wa.update({"meu_numero": False, "conversas": ["privadas"], "gatilho_sempre": False})
+    if a.conta:
+        wa["conta"] = a.conta
+    from .whatsapp import achar_wacli
+    wa["wacli"] = achar_wacli()  # o serviço roda sem o PATH do terminal: guarda o caminho de agora
+    return wa
+
+
+def explicar_whatsapp(bot_id, cfg):
+    wa = cfg["whatsapp"]
+    if not wa["wacli"]:
+        print("Falta instalar o wacli: brew install openclaw/tap/wacli  (ou github.com/openclaw/wacli)\n"
+              f"Depois guarde o caminho: pombo bots editar {bot_id} whatsapp.wacli=$(which wacli)")
+    print("Próximo passo: pombo whatsapp parear" + (f" --conta {wa['conta']}" if wa["conta"] else "") +
+          "   (lê o QR no celular: WhatsApp > Aparelhos conectados)")
+    if wa["meu_numero"]:
+        print(f'Depois, na conversa com você mesmo no WhatsApp, mande: {wa["gatilho"]}, oi')
+    else:
+        print(f"Depois libere quem pode falar com ele: pombo bots liberar {bot_id} +55DDDNUMERO")
+    print("Atenção: o wacli não é oficial, e o WhatsApp pode bloquear números que usam clientes não oficiais.")
+
+
+def cmd_whatsapp(a):
+    import subprocess
+    from .whatsapp import ErroWhatsApp, Wacli, achar_wacli
+    wa = {"wacli": a.wacli or "", "conta": a.conta or "", "pasta_dados": ""}
+    if a.bot:
+        cfg = config.validar_bot(config.carregar_bot(a.bot))
+        if cfg["canal"] != "whatsapp":
+            sair(f'o bot "{a.bot}" não é do WhatsApp')
+        wa = cfg["whatsapp"]
+    w = Wacli(wa)
+    if not w.bin:
+        sair("Não achei o wacli. Instale com: brew install openclaw/tap/wacli  (ou veja github.com/openclaw/wacli)")
+    if a.acao == "status":
+        try:
+            st = w.status()
+        except ErroWhatsApp as e:
+            sair(f"Erro: {e}")
+        if st.get("authenticated"):
+            print(f"Pareado: +{st.get('phone') or ''} ({st.get('linked_jid')})  ·  wacli em {w.bin}")
+        else:
+            print("Não está pareado. Rode: pombo whatsapp parear")
+        return
+    cmd = w.base() + ["auth"]
+    if a.telefone:
+        cmd += ["--phone", a.telefone]
+    print("No celular: WhatsApp > Configurações > Aparelhos conectados > Conectar um aparelho." +
+          (" Toque em \"Conectar com número de telefone\" e digite o código que aparecer aqui." if a.telefone else
+           " Leia o QR que vai aparecer aqui."))
+    print("A primeira sincronização pode levar alguns minutos. Pode fechar com Ctrl+C quando ela acabar.\n")
+    rc = subprocess.call(cmd)
+    if rc == 0:
+        print("\nPronto. O serviço do Pombo liga o bot do WhatsApp em até 30 s (pombo status).")
+    sys.exit(rc)
 
 
 def cmd_migrar(a):
@@ -356,10 +430,14 @@ def montar():
     s = sub.add_parser("bots", help="criar, ver, editar e remover bots")
     s.add_argument("acao", nargs="?", choices=["listar", "criar", "ver", "editar", "token", "liberar", "pausar", "ligar", "remover"])
     s.add_argument("id", nargs="?")
-    s.add_argument("pares", nargs="*", help="campo=valor (editar), token (token) ou ID do Telegram (liberar)")
+    s.add_argument("pares", nargs="*", help="campo=valor (editar), token (token) ou ID do Telegram/número (liberar)")
     s.add_argument("--pasta")
     s.add_argument("--nome")
-    s.add_argument("--usuario", type=int, action="append", help="ID do Telegram liberado (pode repetir)")
+    s.add_argument("--canal", choices=list(config.CANAIS), help="telegram (padrão) ou whatsapp")
+    s.add_argument("--numero-separado", action="store_true",
+                   help="com --canal whatsapp: o WhatsApp pareado é um número só do bot (não o seu)")
+    s.add_argument("--conta", help="com --canal whatsapp: conta do wacli (--account), para ter mais de um WhatsApp")
+    s.add_argument("--usuario", action="append", help="ID do Telegram (ou número de WhatsApp) liberado (pode repetir)")
     s.add_argument("--permissoes", choices=list(config.PERMISSOES))
     s.add_argument("--tirar", action="store_true", help="com liberar: tira o usuário da lista")
     s.add_argument("--sim", action="store_true", help="com remover: confirma")
@@ -381,6 +459,14 @@ def montar():
     s.add_argument("--pausada", action="store_true")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_rotinas)
+
+    s = sub.add_parser("whatsapp", help="conectar o WhatsApp (wacli) neste computador")
+    s.add_argument("acao", choices=["parear", "status"])
+    s.add_argument("--bot", help="usa a conta do wacli deste bot")
+    s.add_argument("--conta", help="conta do wacli (--account)")
+    s.add_argument("--telefone", help="parear por código, sem QR (ex.: +55 31 99999-0000)")
+    s.add_argument("--wacli", help="caminho do wacli, se não estiver no PATH")
+    s.set_defaults(fn=cmd_whatsapp)
 
     s = sub.add_parser("geral", help="configuração geral deste computador")
     s.add_argument("pares", nargs="*")

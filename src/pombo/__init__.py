@@ -1,3 +1,3 @@
-"""Pombo: um bot do Telegram por pasta, rodando o Claude Code no seu computador."""
+"""Pombo: um bot do Telegram (ou do WhatsApp) por pasta, rodando o Claude Code no seu computador."""
 
-VERSAO = "0.3.0"
+VERSAO = "0.4.0"

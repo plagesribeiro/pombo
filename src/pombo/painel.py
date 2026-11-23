@@ -202,7 +202,8 @@ def resumo_bot(servico, bot_id):
     return {
         "id": bot_id,
         "cfg": cfg,
-        "token_definido": bool(config.token_do_bot(bot_id, cfg)) if not cfg.get("token_keychain") else True,
+        "token_definido": (cfg.get("canal") == "whatsapp" or bool(cfg.get("token_keychain"))
+                           or bool(config.token_do_bot(bot_id, cfg))),
         "estado": situacao,
         "desconhecidos": est.get("desconhecidos") or [],
         "rotinas_estado": rot,
@@ -219,29 +220,38 @@ def criar_bot(corpo):
     if config.existe(bot_id):
         raise Erro(409, f'já existe um bot "{bot_id}"')
     cfg = dict(config.BOT_PADRAO)
-    for k in ("nome", "pasta", "usuarios_permitidos", "permissoes"):
+    for k in ("nome", "pasta", "usuarios_permitidos", "permissoes", "canal"):
         if corpo.get(k) not in (None, ""):
             cfg[k] = corpo[k]
     if not cfg["nome"]:
         cfg["nome"] = bot_id
     if not cfg["usuarios_permitidos"]:
-        cfg["usuarios_permitidos"] = config.usuarios_iniciais()
+        cfg["usuarios_permitidos"] = config.usuarios_iniciais(cfg["canal"])
+    if cfg["canal"] == "whatsapp":
+        from .whatsapp import achar_wacli
+        wa = dict(config.WHATSAPP_PADRAO, wacli=achar_wacli())
+        if corpo.get("numero_separado"):
+            wa.update({"meu_numero": False, "conversas": ["privadas"], "gatilho_sempre": False})
+        cfg["whatsapp"] = wa
     config.salvar_bot(bot_id, cfg)
     return {"id": bot_id}
 
 
 def liberar(bot_id, usuario, remover=False):
+    cfg = config.carregar_bot(bot_id)
+    whatsapp = cfg.get("canal") == "whatsapp"
     try:
-        usuario = int(usuario)
+        usuario = config.normalizar_numero(usuario) if whatsapp else int(usuario)
+    except config.ErroConfig as e:
+        raise Erro(400, str(e))
     except (TypeError, ValueError):
         raise Erro(400, "usuário precisa ser o número do ID do Telegram")
-    cfg = config.carregar_bot(bot_id)
     lista = [u for u in cfg["usuarios_permitidos"] if u != usuario]
     if not remover:
         lista.append(usuario)
     cfg["usuarios_permitidos"] = lista
     config.salvar_bot(bot_id, cfg)
-    if not remover:
+    if not remover and not whatsapp:
         config.anotar_dono(usuario)
         config.Estado(bot_id).atualizar(lambda d: d.__setitem__(
             "desconhecidos", [x for x in d.get("desconhecidos", []) if x.get("id") != usuario]))

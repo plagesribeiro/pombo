@@ -127,6 +127,8 @@ details.card[open] > summary::after{content:" ▾"}
       <label class="f"><span class="l">Nome</span><input type="text" id="n-nome" placeholder="Trabalho"></label>
       <label class="f"><span class="l">Id (vira o nome do arquivo)</span><input type="text" id="n-id" placeholder="trabalho"></label>
       <label class="f"><span class="l">Pasta onde ele trabalha</span><input type="text" id="n-pasta" placeholder="~/projetos/trabalho"></label>
+      <label class="f"><span class="l">Onde ele conversa</span><select id="n-canal"><option value="telegram">Telegram (bot do @BotFather)</option><option value="whatsapp">WhatsApp (pelo wacli)</option></select></label>
+      <label class="tog"><input type="checkbox" id="n-separado"><span>WhatsApp: número só do bot<small>Desmarcado, é o seu número (conversa com você mesmo).</small></span></label>
       <button class="btn pri" id="n-criar">Criar bot</button>
       <span class="erro-txt" id="n-erro"></span>
     </details>
@@ -265,7 +267,7 @@ function desenharBot() {
     <datalist id="modelos"><option value="opus"><option value="sonnet"><option value="haiku"><option value="fable"></datalist>
   </div>
 
-  <div class="card">
+  ${c.canal === "whatsapp" ? whatsappHTML(b, c) : `  <div class="card">
     <h2>Telegram</h2>
     <div class="linha">
       <span>Token: ${b.token_definido ? `<b class="ok">definido</b>` : `<b class="bad">falta</b>`}${c.token_keychain ? ` <small class="det">(Keychain: ${esc(c.token_keychain)})</small>` : ""}</span>
@@ -283,7 +285,7 @@ function desenharBot() {
       `<div class="pedido"><span><b>${esc(d.nome || "sem nome")}</b> ${d.username ? "@" + esc(d.username) : ""} · ID <code>${esc(d.id)}</code>${d.texto ? ` · “${esc(d.texto)}”` : ""}</span>
        <button class="btn pri" data-liberar="${esc(d.id)}">Liberar</button></div>`).join("") : ""}
     <p class="hint">Bot novo: crie no @BotFather e cole o token acima. Se o seu ID ainda não estiver na lista, mande qualquer mensagem para o bot e toque em <b>Liberar</b> aqui.</p>
-  </div>
+  </div>`}
 
   <div class="card">
     <h2>Permissões</h2>
@@ -318,7 +320,7 @@ function desenharBot() {
   </div>
 
   <div class="card">
-    <h2>Rotinas <small>prompts que rodam sozinhos e mandam o resultado no Telegram</small></h2>
+    <h2>Rotinas <small>prompts que rodam sozinhos e mandam o resultado no ${c.canal === "whatsapp" ? "WhatsApp" : "Telegram"}</small></h2>
     <div id="rotinas">${c.rotinas.map((r, i) => rotinaHTML(r, i, b)).join("") || `<p class="hint">Nenhuma rotina.</p>`}</div>
     <div><button class="btn" id="rot-nova">+ Nova rotina</button></div>
   </div>
@@ -345,6 +347,44 @@ function desenharBot() {
   </details>`;
   atualizarStatus();
   barra();
+}
+
+function whatsappHTML(b, c) {
+  const w = c.whatsapp || {}, e = b.estado || {};
+  const pareado = (e.username || "").startsWith("+");
+  return `<div class="card">
+    <h2>WhatsApp <small>pelo wacli, como aparelho conectado</small></h2>
+    <div class="linha"><span>Número: ${pareado ? `<b class="ok">${esc(e.username)}</b>` : `<b class="bad">não pareado</b> <small class="det">no terminal: <code>pombo whatsapp parear${w.conta ? " --conta " + esc(w.conta) : ""}</code></small>`}</span></div>
+    <label class="tog"><input type="checkbox" data-w="1" data-c="meu_numero" data-t="bool" ${w.meu_numero ? "checked" : ""}><span>É o meu número<small>${w.meu_numero ? "Você fala com o bot na conversa com você mesmo (\"eu\") ou chamando pelo gatilho nas conversas liberadas. Toda resposta começa com o prefixo." : "Um número só do bot: quem estiver liberado abaixo conversa com ele como com qualquer contato."}</small></span></label>
+    <div class="grid2">
+      <label class="f"><span class="l">Conversas onde ele escuta (uma por linha)</span><textarea class="code" data-w="1" data-c="conversas" data-t="linhas" placeholder="eu">${esc((w.conversas || []).join("\n"))}</textarea>
+        <span class="det"><code>eu</code> = conversa com você mesmo · <code>privadas</code> = qualquer conversa individual · um número (+55...) · um grupo (<code>1203...@g.us</code>, veja com <code>wacli chats list</code>)</span></label>
+      <div>
+        <label class="f"><span class="l">Gatilho (a mensagem começa com ele)</span><input type="text" data-w="1" data-c="gatilho" value="${esc(w.gatilho)}" placeholder="pombo"></label>
+        <label class="tog"><input type="checkbox" data-w="1" data-c="gatilho_sempre" data-t="bool" ${w.gatilho_sempre ? "checked" : ""}><span>Exigir o gatilho sempre<small>Desligado, na conversa "eu" (e nas privadas do número do bot) ele responde tudo. Em grupo e nas conversas dos outros, o gatilho é sempre obrigatório. Áudio vale se começar com o gatilho falado.</small></span></label>
+        <label class="f"><span class="l">Prefixo das respostas</span><input type="text" data-w="1" data-c="prefixo" value="${esc(w.prefixo)}" placeholder="🐦 "></label>
+      </div>
+    </div>
+    <div>
+      <div class="det" style="margin-bottom:6px">${w.meu_numero ? "Outras pessoas que podem chamar o bot (com o gatilho, nas conversas liberadas):" : "Quem pode falar com o bot (número com DDI):"}</div>
+      <div class="chips">
+        ${c.usuarios_permitidos.map((u, i) => `<span class="chip">+${esc(u)}<button title="Tirar" data-tirar="${i}">×</button></span>`).join("") || `<span class="det">${w.meu_numero ? "só você" : "ninguém ainda"}</span>`}
+        <input type="text" id="usu-novo" placeholder="+55 31 99999-0000" style="width:170px"><button class="btn" id="usu-add">Adicionar</button>
+      </div>
+    </div>
+    ${b.desconhecidos.length ? `<div class="det">Tentaram falar com o bot sem estar liberados:</div>` + b.desconhecidos.map(d =>
+      `<div class="pedido"><span><b>${esc(d.nome || "sem nome")}</b> · <code>+${esc(d.id)}</code>${d.texto ? ` · “${esc(d.texto)}”` : ""}</span>
+       <button class="btn pri" data-liberar="${esc(d.id)}">Liberar</button></div>`).join("") : ""}
+    <details><summary class="det">Mais opções do WhatsApp</summary>
+      <div class="grid2">
+        <label class="f"><span class="l">Caminho do wacli</span><input type="text" data-w="1" data-c="wacli" value="${esc(w.wacli)}" placeholder="procura sozinho"></label>
+        <label class="f"><span class="l">Conta do wacli (--account)</span><input type="text" data-w="1" data-c="conta" value="${esc(w.conta)}" placeholder="padrão"></label>
+        <label class="f"><span class="l">Mensagens anteriores como contexto (fora da conversa "eu")</span><input type="number" min="0" max="50" data-w="1" data-c="contexto_mensagens" data-t="int" value="${esc(w.contexto_mensagens)}"></label>
+        <label class="f"><span class="l">Pausa entre envios</span><input type="text" data-w="1" data-c="espaco_entre_envios" value="${esc(w.espaco_entre_envios)}" placeholder="1s-3s"></label>
+      </div>
+    </details>
+    <p class="hint">O wacli não é oficial: o WhatsApp pode bloquear números que usam clientes não oficiais. Use com calma (pouco volume, sem mandar para quem não pediu).</p>
+  </div>`;
 }
 
 function rotinaHTML(r, i, b) {
@@ -378,7 +418,8 @@ function atualizarStatus() {
   if (!b || !$("#st")) return;
   $("#st").innerHTML = situacaoHTML(b);
   const e = b.estado, partes = [];
-  if (e.username) partes.push(`<a href="https://t.me/${esc(e.username)}" target="_blank" rel="noopener">@${esc(e.username)}</a>`);
+  if (e.username && b.cfg.canal === "whatsapp") partes.push(`WhatsApp ${esc(e.username)}`);
+  else if (e.username) partes.push(`<a href="https://t.me/${esc(e.username)}" target="_blank" rel="noopener">@${esc(e.username)}</a>`);
   if (e.detalhe) partes.push(esc(e.detalhe));
   if (e.fila) partes.push(`${e.fila} na fila`);
   $("#det").innerHTML = partes.join(" · ") || (b.estado.situacao === "ligado" ? "pronto para receber mensagens" : "");
@@ -429,6 +470,7 @@ document.addEventListener("input", ev => {
   if (!rasc || !el.dataset || !el.dataset.c || !$("#main").contains(el)) return;
   let v; try { v = lerCampo(el); } catch (e) { barra(); return; }
   if (el.dataset.r !== undefined) rasc.rotinas[+el.dataset.r][el.dataset.c] = v;
+  else if (el.dataset.w !== undefined) { rasc.whatsapp = rasc.whatsapp || {}; rasc.whatsapp[el.dataset.c] = v; if (el.dataset.c === "meu_numero") desenharBot(); }
   else rasc[el.dataset.c] = v;
   if (el.dataset.c === "ativa") el.closest(".rot").classList.toggle("pausada", !v);
   barra();
@@ -444,13 +486,16 @@ document.addEventListener("click", async ev => {
     if (d.dia) { const r = rasc.rotinas[+d.r]; r.dias = r.dias.includes(d.dia) ? r.dias.filter(x => x !== d.dia) : [...r.dias, d.dia]; el.classList.toggle("on"); barra(); return; }
     if (d.tirar !== undefined) { rasc.usuarios_permitidos.splice(+d.tirar, 1); desenharBot(); return; }
     if (d.liberar) { const r = await api("POST", `/api/bots/${sel}/liberar`, {usuario: d.liberar}); base.usuarios_permitidos = r.usuarios_permitidos; rasc.usuarios_permitidos = clone(r.usuarios_permitidos); toast("Liberado. Já pode conversar com o bot."); await atualizar(); desenharBot(); return; }
-    if (d.rodar) { await api("POST", `/api/bots/${sel}/rotinas/${encodeURIComponent(d.rodar)}/rodar`); toast("Rotina na fila. O resultado chega no Telegram."); return; }
+    if (d.rodar) { await api("POST", `/api/bots/${sel}/rotinas/${encodeURIComponent(d.rodar)}/rodar`); toast(`Rotina na fila. O resultado chega no ${bot().cfg.canal === "whatsapp" ? "WhatsApp" : "Telegram"}.`); return; }
     if (d.rotRemover !== undefined) { if (!confirm("Remover esta rotina? (só vale depois de salvar)")) return; rasc.rotinas.splice(+d.rotRemover, 1); desenharBot(); return; }
     switch (el.id) {
       case "salvar": return salvar();
       case "descartar": { const b = bot(); base = clone(b.cfg); rasc = clone(b.cfg); mudouFora = false; invalidos.clear(); desenharBot(); return; }
       case "rot-nova": rasc.rotinas.push({id: "", nome: "", ativa: true, horarios: [], dias: [], prompt: "", conversa: "nova", silenciosa: false, tolerancia_min: 90}); desenharBot(); return;
-      case "usu-add": { const v = $("#usu-novo").value.trim(); if (!/^\d+$/.test(v)) return toast("O ID do Telegram é só número."); rasc.usuarios_permitidos.push(+v); desenharBot(); return; }
+      case "usu-add": {
+        const v = $("#usu-novo").value.trim();
+        if (rasc.canal === "whatsapp") { const n = v.replace(/\D/g, ""); if (n.length < 8 || n.length > 15) return toast("Use o número com DDI e DDD, como +55 31 99999-0000."); rasc.usuarios_permitidos.push(n); desenharBot(); return; }
+        if (!/^\d+$/.test(v)) return toast("O ID do Telegram é só número."); rasc.usuarios_permitidos.push(+v); desenharBot(); return; }
       case "tok-salvar": { await api("POST", `/api/bots/${sel}/token`, {token: $("#tok").value}); toast("Token salvo. O bot liga em alguns segundos."); await atualizar(); desenharBot(); return; }
       case "b-ativo": { const cfg = clone(bot().cfg); cfg.ativo = !cfg.ativo; await api("PUT", `/api/bots/${sel}`, {cfg}); base.ativo = cfg.ativo; rasc.ativo = cfg.ativo; toast(cfg.ativo ? "Bot ligado." : "Bot pausado."); await atualizar(); desenharBot(); return; }
       case "b-teste": await api("POST", `/api/bots/${sel}/teste`); toast("Mensagem de teste enviada."); return;
@@ -461,9 +506,9 @@ document.addEventListener("click", async ev => {
       case "hist-atualizar": return carregarHistorico();
       case "n-criar": {
         $("#n-erro").textContent = "";
-        const nome = $("#n-nome").value.trim(), id = $("#n-id").value.trim(), pasta = $("#n-pasta").value.trim();
+        const nome = $("#n-nome").value.trim(), id = $("#n-id").value.trim(), pasta = $("#n-pasta").value.trim(), canal = $("#n-canal").value;
         if (!nome || !pasta) { $("#n-erro").textContent = "Preencha o nome e a pasta."; return; }
-        try { const r = await api("POST", "/api/bots", {nome, id: id || undefined, pasta}); $("#novo").open = false; ["#n-nome", "#n-id", "#n-pasta"].forEach(s => $(s).value = ""); await atualizar(); abrir(r.id); toast("Bot criado. Agora cole o token do @BotFather."); }
+        try { const r = await api("POST", "/api/bots", {nome, id: id || undefined, pasta, canal, numero_separado: canal === "whatsapp" && $("#n-separado").checked}); $("#novo").open = false; ["#n-nome", "#n-id", "#n-pasta"].forEach(s => $(s).value = ""); await atualizar(); abrir(r.id); toast(canal === "whatsapp" ? "Bot criado. Agora, no terminal: pombo whatsapp parear" : "Bot criado. Agora cole o token do @BotFather."); }
         catch (e) { $("#n-erro").textContent = e.message; }
         return;
       }

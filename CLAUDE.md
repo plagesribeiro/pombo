@@ -1,7 +1,8 @@
 # Pombo
 
-Um bot do Telegram por pasta, rodando o Claude Code (`claude -p`) no computador do usuário. Um serviço único liga
-todos os bots, com rotinas agendadas, painel web e linha de comando. Python 3.8+ só com a biblioteca padrão.
+Um bot do Telegram (ou do WhatsApp, pelo `wacli`) por pasta, rodando o Claude Code (`claude -p`) no computador do
+usuário. Um serviço único liga todos os bots, com rotinas agendadas, painel web e linha de comando. Python 3.8+ só
+com a biblioteca padrão.
 
 Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, que não vai para o Git.
 
@@ -9,7 +10,12 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
 
 - `pombo`: entrada (`pombo --help`). Sem argumentos e sem terminal, roda o serviço (é o que o app do Mac faz).
 - `src/pombo/config.py`: caminhos, leitura/gravação e **validação** da configuração (todo campo novo passa por aqui).
-- `src/pombo/execucao.py`: um bot rodando (`BotRunner`): escuta o Telegram, fila, roda o agente, responde, rotinas.
+- `src/pombo/execucao.py`: um bot rodando (`BotRunner`): fila, roda o agente, responde, rotinas. Fala com o canal do
+  bot (`canal`), que recebe e manda as mensagens; as mensagens chegam num formato só (`CanalTelegram.normalizar`).
+- `src/pombo/telegram.py`: cliente da API do Telegram e `CanalTelegram` (getUpdates, andamento editando a mensagem).
+- `src/pombo/whatsapp.py`: `CanalWhatsApp`, pelo programa `wacli` (github.com/openclaw/wacli): `Sincronizador` deixa
+  o `wacli sync --follow` rodando, o diário `messages changes` faz o papel do offset, e `avaliar` decide o que é para o
+  bot (conversa, quem mandou, gatilho, prefixo das próprias respostas).
 - `src/pombo/motores.py`: monta o comando do `claude -p` (permissões, MCPs, plugins, env). Outro motor (Codex) entra aqui.
 - `src/pombo/servico.py`: liga/desliga bots conforme os arquivos (recarrega a cada 2 s) e o agendador (a cada 20 s).
 - `src/pombo/rotinas.py`: quando uma rotina deve rodar (funções puras, testadas).
@@ -22,12 +28,15 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
   Mudou a instalação, um comando ou um campo usado lá? Atualize o roteiro junto.
 - `skills/pombo/`: skill que ensina o Claude a configurar (instalada com `pombo skill instalar`).
 - `mac/lancador.c`: lançador do app no Mac (para o macOS dar acesso a Documentos uma vez só).
-- `tests/`: unidade (rápidos) e ponta a ponta (`telegram_falso.py` simula a API do Telegram).
+- `tests/`: unidade (rápidos) e ponta a ponta (`telegram_falso.py` simula a API do Telegram e `wacli_falso.py`, o
+  programa `wacli`).
 
 ## Regras
 
 - Nada de dependência externa: só biblioteca padrão, compatível com Python 3.8 (o Mac usa `/usr/bin/python3`).
 - Token nunca vai para `bots/*.json`, log, API do painel ou chat: só `segredos.json` (600), Keychain ou variável.
+- Canal novo: implemente a mesma interface do `CanalTelegram` (ouvir, responder, aviso, enviar_arquivo, andamento,
+  baixar, chat_do_dono, eh_dono, parar) e registre em `execucao.criar_canal` e `config.CANAIS`.
 - Toda mudança de configuração passa por `config.validar_bot`, que dá mensagem clara em português.
 - Painel: só 127.0.0.1, confere o `Host` e exige o cabeçalho `X-Pombo: 1` em toda mudança.
 - Textos para o usuário em português simples (painel, Telegram, erros).

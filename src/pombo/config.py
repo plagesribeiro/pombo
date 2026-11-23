@@ -6,7 +6,7 @@ Tudo fica numa pasta de configuração por máquina (fora de qualquer repositór
   geral.json            nome da máquina, como o bot chama você, porta do painel
   bots/<id>.json        um arquivo por bot (sem token)
   segredos.json         tokens dos bots (permissão só do usuário)
-  estado/<id>.json      offset do Telegram, conversas, último horário de cada rotina
+  estado/<id>.json      offset do Telegram (ou checkpoint do WhatsApp), conversas, último horário de cada rotina
   execucoes/<id>.jsonl  histórico de pedidos e rotinas
   logs/<id>.log         log de cada bot (logs/geral.log para o serviço)
   anexos/<id>/          fotos, áudios e arquivos recebidos
@@ -31,6 +31,10 @@ PERMISSOES = {
     "lista": "só as ferramentas da lista 'ferramentas_permitidas'; o resto é negado (--permission-mode dontAsk)",
 }
 MOTORES = ["claude"]
+CANAIS = {
+    "telegram": "um bot do Telegram (token do @BotFather)",
+    "whatsapp": "o WhatsApp, pelo wacli (github.com/openclaw/wacli), pareado como aparelho conectado",
+}
 
 GERAL_PADRAO = {
     "nome_maquina": "",
@@ -45,6 +49,7 @@ GERAL_PADRAO = {
 BOT_PADRAO = {
     "nome": "",
     "ativo": True,
+    "canal": "telegram",
     "usuarios_permitidos": [],
     "pasta": "~",
     "motor": "claude",
@@ -65,7 +70,23 @@ BOT_PADRAO = {
     "tempo_maximo_min": 25,
     "transcricao_cmd": [],
     "token_keychain": "",
+    "whatsapp": {},
     "rotinas": [],
+}
+
+# Só para bots com "canal": "whatsapp". Veja whatsapp.py.
+WHATSAPP_PADRAO = {
+    "wacli": "",                    # caminho do wacli; vazio = procura no PATH e nos lugares de sempre
+    "conta": "",                    # --account do wacli (para ter mais de um WhatsApp no mesmo computador)
+    "pasta_dados": "",              # --store do wacli; vazio = o padrão dele (~/.wacli)
+    "meu_numero": True,             # o WhatsApp pareado é o seu número (False: um número só do bot)
+    "conversas": ["eu"],            # "eu" (conversa com você mesmo), "privadas", números ou JIDs (grupos: ...@g.us)
+    "gatilho": "pombo",             # a mensagem começa com isso ("pombo, ..." ou "@pombo ...")
+    "gatilho_sempre": True,         # exige o gatilho também na conversa "eu" e nas privadas do número do bot
+    "prefixo": "🐦 ",               # começo de toda resposta (no seu número, é como o Pombo se reconhece)
+    "contexto_mensagens": 10,       # fora da conversa "eu": quantas mensagens anteriores vão junto, como contexto
+    "intervalo_s": 2,               # de quanto em quanto tempo olha se chegou mensagem
+    "espaco_entre_envios": "1s-3s",  # pausa entre envios (--send-spacing do wacli); vazio = sem pausa
 }
 
 ROTINA_PADRAO = {
@@ -82,6 +103,7 @@ ROTINA_PADRAO = {
 
 ID_VALIDO = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 HORA_VALIDA = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+JID_VALIDO = re.compile(r"^[0-9a-z.:_-]+@(s\.whatsapp\.net|g\.us|lid)$")
 
 
 class ErroConfig(ValueError):
@@ -200,6 +222,8 @@ def completar_bot(bruto, bot_id=""):
     cfg = {**copy.deepcopy(BOT_PADRAO), **{k: v for k, v in bruto.items() if k != "id"}}
     if not cfg["nome"]:
         cfg["nome"] = bot_id
+    if cfg.get("canal") == "whatsapp" and isinstance(cfg.get("whatsapp"), dict):
+        cfg["whatsapp"] = {**copy.deepcopy(WHATSAPP_PADRAO), **cfg["whatsapp"]}
     cfg["rotinas"] = [{**ROTINA_PADRAO, **r} for r in cfg.get("rotinas") or [] if isinstance(r, dict)]
     return cfg
 
@@ -210,10 +234,20 @@ def validar_bot(cfg):
     desconhecidos = set(cfg) - set(BOT_PADRAO)
     if desconhecidos:
         raise ErroConfig(f"campo desconhecido: {', '.join(sorted(desconhecidos))}. Campos: {', '.join(BOT_PADRAO)}")
-    try:
-        cfg["usuarios_permitidos"] = [int(x) for x in cfg["usuarios_permitidos"]]
-    except (TypeError, ValueError):
-        raise ErroConfig("usuarios_permitidos precisa ser uma lista de números (IDs do Telegram)")
+    if cfg["canal"] not in CANAIS:
+        raise ErroConfig(f"canal precisa ser um destes: {', '.join(CANAIS)}")
+    if not isinstance(cfg["usuarios_permitidos"], list):
+        raise ErroConfig("usuarios_permitidos precisa ser uma lista")
+    if cfg["canal"] == "whatsapp":
+        cfg["usuarios_permitidos"] = [normalizar_numero(x) for x in cfg["usuarios_permitidos"]]
+        cfg["whatsapp"] = validar_whatsapp(cfg["whatsapp"], cfg["usuarios_permitidos"])
+    else:
+        try:
+            cfg["usuarios_permitidos"] = [int(x) for x in cfg["usuarios_permitidos"]]
+        except (TypeError, ValueError):
+            raise ErroConfig("usuarios_permitidos precisa ser uma lista de números (IDs do Telegram)")
+        if not isinstance(cfg["whatsapp"], dict):
+            raise ErroConfig("whatsapp precisa ser um objeto JSON ({...})")
     if cfg["motor"] not in MOTORES:
         raise ErroConfig(f"motor precisa ser um destes: {', '.join(MOTORES)}")
     if cfg["permissoes"] not in PERMISSOES:
@@ -252,6 +286,79 @@ def validar_bot(cfg):
         rotinas.append(r)
     cfg["rotinas"] = rotinas
     return cfg
+
+
+def normalizar_numero(x):
+    """'+55 (31) 99999-0000' -> '5531999990000' (número com DDI, só dígitos)."""
+    n = re.sub(r"\D", "", str(x if x is not None else ""))
+    if not 8 <= len(n) <= 15:
+        raise ErroConfig(f'"{x}" não parece um número de WhatsApp. Use o número com DDI e DDD, como +55 31 99999-0000')
+    return n
+
+
+def validar_whatsapp(wa, usuarios):
+    if not isinstance(wa, dict):
+        raise ErroConfig("whatsapp precisa ser um objeto JSON ({...})")
+    wa = {**copy.deepcopy(WHATSAPP_PADRAO), **wa}
+    desconhecidos = set(wa) - set(WHATSAPP_PADRAO)
+    if desconhecidos:
+        raise ErroConfig(f"campo desconhecido em whatsapp: {', '.join(sorted(desconhecidos))}. "
+                         f"Campos: {', '.join(WHATSAPP_PADRAO)}")
+    for campo in ("wacli", "conta", "pasta_dados", "gatilho", "prefixo", "espaco_entre_envios"):
+        if not isinstance(wa[campo], str):
+            raise ErroConfig(f"whatsapp.{campo} precisa ser um texto")
+    for campo in ("meu_numero", "gatilho_sempre"):
+        wa[campo] = bool(wa[campo])
+    wa["gatilho"] = wa["gatilho"].strip().lstrip("@").strip()
+    if wa["gatilho"] and not re.match(r"^\w[\w-]*$", wa["gatilho"]):
+        raise ErroConfig('whatsapp.gatilho precisa ser uma palavra só, como "pombo"')
+    if wa["espaco_entre_envios"] and not re.match(r"^\d+(ms|s)(-\d+(ms|s))?$", wa["espaco_entre_envios"].strip()):
+        raise ErroConfig('whatsapp.espaco_entre_envios fica assim: "2s", "500ms" ou "1s-3s" (vazio = sem pausa)')
+    wa["espaco_entre_envios"] = wa["espaco_entre_envios"].strip()
+    if wa["conta"] and not re.match(r"^[A-Za-z0-9_.-]+$", wa["conta"]):
+        raise ErroConfig("whatsapp.conta é o nome de uma conta do wacli (letras, números, ponto, hífen)")
+    for campo, minimo, maximo in (("contexto_mensagens", 0, 50), ("intervalo_s", 1, 60)):
+        try:
+            wa[campo] = int(wa[campo])
+            if not minimo <= wa[campo] <= maximo:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ErroConfig(f"whatsapp.{campo} precisa ser um número de {minimo} a {maximo}")
+    if isinstance(wa["conversas"], str):
+        wa["conversas"] = [c.strip() for c in re.split(r"[,;\n]+", wa["conversas"]) if c.strip()]
+    if not isinstance(wa["conversas"], list) or not wa["conversas"]:
+        raise ErroConfig('whatsapp.conversas precisa ter pelo menos uma conversa (ex.: ["eu"])')
+    conversas = []
+    for c in wa["conversas"]:
+        c = str(c).strip().lower()
+        if c in ("eu", "privadas"):
+            pass
+        elif "@" in c:
+            if not JID_VALIDO.match(c):
+                raise ErroConfig(f'conversa inválida: "{c}" (use "eu", "privadas", um número ou um JID como 1203...@g.us)')
+        else:
+            c = normalizar_numero(c)
+        if c not in conversas:
+            conversas.append(c)
+    wa["conversas"] = conversas
+    grupos = any(c.endswith("@g.us") for c in conversas)
+    if wa["meu_numero"]:
+        if not wa["prefixo"].strip():
+            raise ErroConfig("whatsapp.prefixo não pode ficar vazio no seu número: é por ele que o Pombo não responde "
+                             "a si mesmo (o padrão é 🐦)")
+        fora_do_eu = [c for c in conversas if c != "eu"]
+        if fora_do_eu and not wa["gatilho"]:
+            raise ErroConfig("sem gatilho, o bot responderia toda mensagem sua nessas conversas. Defina whatsapp.gatilho "
+                             '(ex.: "pombo") ou deixe só a conversa "eu"')
+    else:
+        if "eu" in conversas:
+            raise ErroConfig('a conversa "eu" só existe quando o WhatsApp pareado é o seu número (whatsapp.meu_numero)')
+        if not usuarios:
+            pass  # sem ninguém liberado, ninguém fala com o bot (quem tentar aparece no painel)
+    if (grupos or wa["gatilho_sempre"]) and not wa["gatilho"]:
+        raise ErroConfig("defina whatsapp.gatilho: " + ("em grupo, o bot só responde quando chamado"
+                                                       if grupos else "gatilho_sempre está ligado"))
+    return wa
 
 
 def validar_rotina(r):
@@ -296,8 +403,11 @@ def validar_rotina(r):
     return r
 
 
-def usuarios_iniciais():
-    """Bot novo já nasce liberado para o dono deste computador (geral.json: meu_id_telegram)."""
+def usuarios_iniciais(canal="telegram"):
+    """Bot novo já nasce liberado para o dono deste computador (geral.json: meu_id_telegram).
+    No WhatsApp com o seu número, o dono é o próprio número pareado: a lista começa vazia."""
+    if canal != "telegram":
+        return []
     meu = carregar_geral().get("meu_id_telegram")
     return [int(meu)] if meu else []
 
@@ -353,7 +463,10 @@ def resolver(cfg, p):
 # ---------------------------------------------------------------- tokens
 
 def token_do_bot(bot_id, cfg):
-    """Ordem: segredos.json, Keychain do Mac (token_keychain), variável POMBO_TOKEN_<ID>."""
+    """Ordem: segredos.json, Keychain do Mac (token_keychain), variável POMBO_TOKEN_<ID>.
+    Bot do WhatsApp não tem token: a sessão fica no wacli."""
+    if cfg.get("canal") == "whatsapp":
+        return ""
     t = ler_json(caminho("segredos.json"), {}).get(bot_id)
     if t:
         return t.strip()

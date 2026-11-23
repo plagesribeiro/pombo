@@ -1,6 +1,6 @@
 # 🕊️ Pombo
 
-**Um bot do Telegram para cada pasta do seu computador, rodando o Claude Code.**
+**Um bot do Telegram (ou o seu WhatsApp) para cada pasta do seu computador, rodando o Claude Code.**
 
 Você manda uma mensagem pelo celular (texto, áudio, foto ou arquivo). O Pombo leva o recado até o computador, roda
 o [Claude Code](https://code.claude.com) dentro da pasta daquele bot e traz a resposta de volta para o chat. Cada bot
@@ -9,7 +9,8 @@ e-mail às 7h, 12h e 18h).
 
 > **English.** Pombo ("pigeon", as in carrier pigeon) turns Telegram into a remote for Claude Code running on your own
 > machine: one Telegram bot per folder, persistent conversations, scheduled routines, per-bot permissions and MCP
-> servers, a local web panel, and a Claude skill so Claude itself can configure it. Pure Python standard library;
+> servers, a local web panel, and a Claude skill so Claude itself can configure it. Optional WhatsApp channel through
+> [wacli](https://github.com/openclaw/wacli) (talk to Claude in your "Message yourself" chat). Pure Python standard library;
 > Linux, macOS and Windows. **The interface (panel, CLI and bot messages) is in Brazilian Portuguese for now.**
 > See the [English quick start](#english-quick-start).
 
@@ -40,6 +41,8 @@ a [instalação passo a passo](#instalação).
 - **Conversa de verdade.** A conversa continua de uma mensagem para a outra, e responder a uma mensagem antiga
   retoma aquela conversa.
 - **Rotinas** com horário, que podem ficar em silêncio quando não há novidade.
+- **WhatsApp também (opcional):** fale com o Claude na conversa com você mesmo, ou chame com "pombo, ..." em
+  qualquer conversa liberada, pelo [wacli](https://github.com/openclaw/wacli). Veja [WhatsApp](#whatsapp).
 - **Configura do jeito que você preferir:** painel web, linha de comando ou pedindo ao próprio Claude.
 - **Seguro por padrão:** não abre porta na internet, só responde a quem você liberar, e os tokens ficam fora de
   qualquer arquivo de configuração compartilhável.
@@ -172,6 +175,42 @@ você preferir:
 ["python3", "/caminho/transcrever.py", "{arquivo}"]
 ```
 
+## WhatsApp
+
+Além do Telegram, um bot pode conversar pelo WhatsApp, pelo [wacli](https://github.com/openclaw/wacli): um cliente
+de linha de comando que entra no WhatsApp como um **aparelho conectado**, igual ao WhatsApp Web. O Pombo deixa um
+`wacli sync --follow` rodando, lê as mensagens novas e responde com `wacli send`.
+
+> ⚠️ **O wacli não é oficial.** Os termos do WhatsApp proíbem clientes não oficiais, e o WhatsApp pode bloquear o
+> número (às vezes para sempre). Uso baixo, só nas suas conversas, é risco baixo, mas não zero. Se não quiser
+> arriscar o seu número, use um número só do bot (`--numero-separado`).
+
+**No seu número** (o padrão): você fala com o bot na conversa com você mesmo ("Você", no topo da lista de contatos).
+
+```bash
+brew install openclaw/tap/wacli                       # ou veja github.com/openclaw/wacli
+pombo bots criar zap --pasta ~/pessoal --canal whatsapp
+pombo whatsapp parear                                 # lê o QR no celular: Aparelhos conectados
+```
+
+Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A mensagem ganha uma reação
+👀 enquanto o Claude trabalha, a resposta chega começando com 🐦 e a reação vira ✅.
+
+- **Gatilho:** por padrão, o bot só responde ao que começa com `pombo` (ou `@pombo`, `Pombo:`), e a conversa com você
+  mesmo continua servindo para anotações. Para ele responder tudo ali: `pombo bots editar zap whatsapp.gatilho_sempre=false`.
+- **Em outras conversas:** libere em `whatsapp.conversas` (`privadas`, um número ou um grupo `...@g.us`) e escreva
+  `pombo, ...` lá. A resposta aparece para todo mundo da conversa, e as últimas mensagens dela vão como contexto. Só
+  as suas mensagens acionam o bot, a não ser que você libere outras pessoas.
+- **Áudio** vale se começar com o gatilho falado ("Pombo, ...").
+- **Responder** (citar) uma mensagem do bot continua a conversa, sem precisar do gatilho.
+- Os comandos (`/novo`, `/status`, `/rotinas`...) funcionam igual.
+
+**Num número só do bot** (`pombo bots criar zap --pasta P --canal whatsapp --numero-separado`): o bot vira um contato.
+Libere quem pode falar com ele (`pombo bots liberar zap +55 31 99999-0000`), e a conversa é como a do Telegram.
+
+Um número só pode estar em **um** computador com o Pombo (dois responderiam em dobro). O `wacli` guarda as conversas
+no disco (`~/.wacli`): deixe o disco criptografado.
+
 ## Rotinas
 
 Uma rotina é um prompt com horário. No painel, em **Rotinas → + Nova rotina**, ou:
@@ -257,9 +296,9 @@ O endereço só funciona nos aparelhos da sua tailnet.
 pombo status                          como está cada bot
 pombo painel                          endereço do painel
 pombo bots                            lista os bots
-pombo bots criar ID --pasta P         cria um bot
+pombo bots criar ID --pasta P         cria um bot (--canal whatsapp para o WhatsApp)
 pombo bots token ID                   grava o token (pergunta sem mostrar)
-pombo bots liberar ID USUARIO         libera um ID do Telegram (--tirar para remover)
+pombo bots liberar ID USUARIO         libera um ID do Telegram ou número de WhatsApp (--tirar para remover)
 pombo bots ver ID                     configuração em JSON (sem token)
 pombo bots editar ID campo=valor      muda qualquer campo (valores em JSON: true, 10, ["a","b"])
 pombo bots pausar|ligar|remover ID
@@ -267,6 +306,7 @@ pombo rotinas ID                      lista as rotinas
 pombo rotinas criar ID --nome N --horarios 07:00,17:00 --prompt "..."
 pombo rotinas editar ID ROTINA campo=valor
 pombo rotinas rodar|remover ID ROTINA
+pombo whatsapp parear|status          conecta o WhatsApp (wacli) neste computador
 pombo geral campo=valor               configuração deste computador
 pombo log [ID] [-n 80]                últimas linhas do log
 pombo testar ID "texto"               roda um pedido como se fosse você
@@ -305,6 +345,10 @@ um deles ou crie outro bot no @BotFather.
 instalação). Depois, `pombo servico reiniciar`.
 
 **No Linux, o bot para quando eu saio da sessão.** Ative o *linger*: `sudo loginctl enable-linger $USER`.
+
+**O bot do WhatsApp não liga.** `pombo whatsapp status --bot ID` mostra se o número está pareado. Se o WhatsApp
+desconectou o aparelho (acontece se o celular ficar uns 14 dias sem internet), rode `pombo whatsapp parear --bot ID`.
+Se o serviço não achar o `wacli`, ponha o caminho: `pombo bots editar ID whatsapp.wacli=$(which wacli)`.
 
 **O login do Claude expirou.** Rode `claude` no terminal e faça login de novo; o Pombo usa o mesmo login. Os bots
 voltam a funcionar na próxima mensagem.

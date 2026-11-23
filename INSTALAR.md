@@ -132,3 +132,27 @@ pombo geral meu_id_telegram=ID_DO_TELEGRAM
      a agenda"*;
    - que o computador precisa estar ligado e acordado para o bot responder;
    - onde dar retorno: [issues do Pombo](https://github.com/plagesribeiro/pombo/issues).
+
+## 9. (Opcional) WhatsApp
+
+Só se a pessoa pedir o WhatsApp. Antes, avise com todas as letras: **o `wacli` não é oficial, e o WhatsApp pode
+bloquear o número** (às vezes para sempre). Pergunte se ela prefere usar o próprio número (conversa com ela mesma)
+ou um número só do bot.
+
+1. Instale o `wacli`: `brew install openclaw/tap/wacli` (Mac ou Linux com Homebrew). Sem Homebrew, baixe o binário em
+   <https://github.com/openclaw/wacli/releases/latest> e ponha no `~/.local/bin`.
+2. Crie o bot (o caminho do `wacli` fica guardado, porque o serviço roda sem o PATH do terminal):
+   ```bash
+   pombo bots criar zap --pasta ~/pessoal --canal whatsapp                     # no número dela
+   pombo bots criar zap --pasta ~/pessoal --canal whatsapp --numero-separado   # num número só do bot
+   ```
+3. **A pessoa pareia, no terminal** (você não consegue fazer isso por ela): `pombo whatsapp parear`. Ela lê o QR em
+   WhatsApp → Aparelhos conectados → Conectar um aparelho (ou usa `--telefone +55...` e digita o código). A primeira
+   sincronização pode levar alguns minutos.
+4. Confira com `pombo whatsapp status` e `pombo status` (o bot aparece com o número).
+5. Teste:
+   - no número dela: na conversa com ela mesma, mandar **"pombo, oi"**;
+   - num número só do bot: liberar quem fala com ele (`pombo bots liberar zap +55DDDNUMERO`) e mandar "oi" para o
+     número do bot.
+
+   A mensagem ganha 👀, a resposta chega começando com 🐦 e a reação vira ✅.
