@@ -193,14 +193,18 @@ pombo bots criar zap --pasta ~/pessoal --canal whatsapp
 pombo whatsapp parear                                 # lê o QR no celular: Aparelhos conectados
 ```
 
-Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A mensagem ganha uma reação
-👀 enquanto o Claude trabalha, a resposta chega começando com 🐦 e a reação vira ✅.
+Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A reação na sua mensagem
+mostra a etapa: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando ferramentas. A resposta chega começando com 🐦
+e a reação vira ✅.
 
 - **Gatilho:** por padrão, o bot só responde ao que começa com `pombo` (ou `@pombo`, `Pombo:`), e a conversa com você
   mesmo continua servindo para anotações. Para ele responder tudo ali: `pombo bots editar zap whatsapp.gatilho_sempre=false`.
-- **Em outras conversas:** libere em `whatsapp.conversas` (`privadas`, um número ou um grupo `...@g.us`) e escreva
-  `pombo, ...` lá. A resposta aparece para todo mundo da conversa, e as últimas mensagens dela vão como contexto. Só
-  as suas mensagens acionam o bot, a não ser que você libere outras pessoas.
+- **Em outras conversas:** libere em `whatsapp.conversas` (um número, um grupo `...@g.us`, ou por tipo: `privadas`,
+  `grupos`, `todas`) e escreva `pombo, ...` lá. A resposta aparece para todo mundo da conversa (o Claude é avisado
+  disso), e as últimas mensagens dela vão como contexto. Só as suas mensagens acionam o bot, a não ser que você libere
+  outras pessoas.
+- **Pasta padrão:** com `todas`, o bot atende o `pombo, ...` em qualquer conversa ou grupo que não seja de outra pasta
+  (a conversa ligada pelo nome a outro bot é dele): `pombo bots editar zap 'whatsapp.conversas=["eu","todas"]'`.
 - **Áudio** vale se começar com o gatilho falado ("Pombo, ...").
 - **Responder** (citar) uma mensagem do bot continua a conversa, sem precisar do gatilho.
 - Os comandos (`/novo`, `/status`, `/rotinas`...) funcionam igual.

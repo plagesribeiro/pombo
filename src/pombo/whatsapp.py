@@ -498,14 +498,46 @@ def soltar_sincronizador(s, bot_id):
     s.parar()
 
 
+def etapa_de(texto):
+    """O que o agente está fazendo (texto do andamento, igual ao do Telegram) -> reação na mensagem."""
+    t = (texto or "").lstrip()
+    if not t:
+        return None
+    if t.startswith("🎧"):
+        return "🎧"
+    if t.startswith(("🧠", "💭")):
+        return "🧠"
+    return "🛠️"  # qualquer ferramenta (ler arquivo, rodar comando, pesquisar, MCP...)
+
+
 class Reacao:
-    """No WhatsApp não dá para editar um "Recebi!" sem encher a conversa: marca a mensagem com 👀 e, no fim, ✅."""
+    """No WhatsApp não dá para editar um "Recebi!" sem encher a conversa: a reação na mensagem mostra a etapa.
+    👀 recebeu → 🎧 ouvindo o áudio → 🧠 pensando → 🛠️ usando ferramentas → ✅ respondeu.
+    Uma thread manda as trocas (o agente não espera) e segura no máximo uma troca a cada INTERVALO segundos."""
+
+    INTERVALO = 3
 
     def __init__(self, canal, chat, mid, remetente=None):
         self.canal, self.chat, self.mid, self.remetente = canal, chat, mid, remetente
-        # o 👀 vai em paralelo: o Claude começa na hora, sem esperar o envio da reação (~2 s)
-        self._olhos = threading.Thread(target=self._reagir, args=("👀",), daemon=True)
-        self._olhos.start()
+        self._cond = threading.Condition()
+        self._desejada, self._enviada, self._fechar, self._ultima = "👀", None, False, 0.0
+        self._thread = threading.Thread(target=self._laco, daemon=True)
+        self._thread.start()
+
+    def _laco(self):
+        while True:
+            with self._cond:
+                while self._desejada == self._enviada and not self._fechar:
+                    self._cond.wait()
+                if self._desejada == self._enviada:
+                    return
+                emoji, final = self._desejada, self._fechar
+            espera = self._ultima + self.INTERVALO - time.time()
+            if espera > 0 and not final:
+                time.sleep(espera)
+                continue  # pega a etapa mais recente depois da pausa
+            self._reagir(emoji)
+            self._enviada, self._ultima = emoji, time.time()
 
     def _reagir(self, emoji):
         try:
@@ -515,15 +547,22 @@ class Reacao:
             self.canal.r.log(f"não deu para reagir na mensagem ({e})")
 
     def mostrar(self, texto, forcar=False):
-        pass
+        etapa = etapa_de(texto)
+        if etapa:
+            with self._cond:
+                if not self._fechar:
+                    self._desejada = etapa
+                    self._cond.notify()
 
     def fim(self):
         # o ✅ vai depois da resposta (CanalWhatsApp.responder chama concluir); antes, parecia pronto sem estar
         self.canal._a_concluir[self.mid] = self
 
     def concluir(self):
-        self._olhos.join(60)  # o ✅ nunca pode chegar antes do 👀 (a última reação é a que fica)
-        self._reagir("✅")
+        with self._cond:
+            self._desejada, self._fechar = "✅", True
+            self._cond.notify()
+        self._thread.join(60)  # as trocas saem em ordem, e o ✅ é a última (a que fica)
 
 
 class SemReacao:
@@ -554,6 +593,7 @@ class CanalWhatsApp:
         self._midia_em_envio = {}  # conversa -> quantos arquivos/áudios o bot está mandando nela agora
         self._grupos_meus = {}     # grupo -> (quando conferiu, só você está nele?)
         self._a_concluir = {}      # mensagem -> Reacao que espera a resposta sair para virar ✅
+        self._reivindicadas = (0.0, set())  # conversas que outros bots deste WhatsApp liberaram pelo nome
 
     def cfg(self):
         return self.r.cfg.get("whatsapp") or {}
@@ -780,16 +820,45 @@ class CanalWhatsApp:
         return sozinho
 
     def conversa_liberada(self, chat):
+        return self.liberacao(chat)[0]
+
+    def liberacao(self, chat):
+        """(onde, curinga): onde = "eu", "privada", "grupo" ou None. curinga = liberada por "privadas", "grupos" ou
+        "todas" (a pasta padrão), e não pelo nome. Conversa liberada pelo nome em outro bot do mesmo WhatsApp é dele."""
         tipo = tipo_de_conversa(chat)
         if not tipo:
-            return None
+            return None, False
         eu = tipo == "privada" and self.eh_eu(chat)
-        for c in self.cfg().get("conversas") or []:
-            if (c == "eu" and eu) or (c == "privadas" and tipo == "privada" and not eu) or c == chat.lower():
-                return "eu" if eu else tipo
-            if c.isdigit() and tipo == "privada" and not eu and numero(chat) == c:
-                return tipo
-        return None
+        conversas = self.cfg().get("conversas") or []
+        for c in conversas:
+            if (c == "eu" and eu) or (not eu and c == chat.lower()) or \
+                    (c.isdigit() and tipo == "privada" and not eu and numero(chat) == c):
+                return ("eu" if eu else tipo), False
+        if eu:
+            return None, False
+        curinga = "todas" in conversas or (tipo == "privada" and "privadas" in conversas) or \
+            (tipo == "grupo" and "grupos" in conversas)
+        if curinga and not self._de_outro_bot(chat):
+            return tipo, True
+        return None, False
+
+    def _de_outro_bot(self, chat):
+        agora = time.time()
+        if agora - self._reivindicadas[0] > 10:
+            nomes = set()
+            minha = config.chave_whatsapp(self.r.cfg)
+            for b in config.listar_ids():
+                if b == self.r.id:
+                    continue
+                try:
+                    o = config.validar_bot(config.carregar_bot(b))
+                except config.ErroConfig:
+                    continue
+                if o["canal"] == "whatsapp" and o["ativo"] and config.chave_whatsapp(o) == minha:
+                    nomes |= {c for c in o["whatsapp"]["conversas"] if c not in config.CURINGAS}
+            self._reivindicadas = (agora, nomes)
+        nomes = self._reivindicadas[1]
+        return chat.lower() in nomes or numero(chat) in nomes
 
     def examinar(self, chat, mid, desde):
         if not chat or not mid:
@@ -798,20 +867,20 @@ class CanalWhatsApp:
         chave = f"{chat}|{mid}"
         if mid in (est.get("enviadas") or []) or chave in (est.get("vistas") or []):
             return
-        onde = self.conversa_liberada(chat)
+        onde, curinga = self.liberacao(chat)
         if not onde:
             return
         m = self.wa.mensagem(chat, mid)
         if not isinstance(m, dict):
             return
-        decisao = self.avaliar(m, onde, desde, est)
+        decisao = self.avaliar(m, onde, desde, est, curinga)
         if decisao is None:  # ainda pode mudar (ex.: mensagem que chegou incompleta): não marca como vista
             return
         self._marcar_vista(chave)
         if decisao:
             self.r.chegou(decisao)
 
-    def avaliar(self, m, onde, desde, est):
+    def avaliar(self, m, onde, desde, est, curinga=False):
         """Devolve a mensagem no formato comum (é para o bot), False (não é, nunca vai ser) ou None (ainda não sei)."""
         wa = self.cfg()
         r = self.r
@@ -822,7 +891,7 @@ class CanalWhatsApp:
             return False  # histórico que o wacli trouxe agora, ou mensagem velha demais (computador desligado)
         if mid in (est.get("enviadas") or []):
             return False
-        if onde == "grupo" and self.grupo_so_meu(chat):
+        if onde == "grupo" and not curinga and self.grupo_so_meu(chat):
             onde = "meu_grupo"  # funciona como a conversa "eu", sem gatilho
         midia = (m.get("MediaType") or "").lower()
         if midia and midia != "audio" and midia not in FOTOS + ARQUIVOS:
@@ -894,10 +963,20 @@ class CanalWhatsApp:
             msg["arquivos"] = [{"nome": m.get("Filename") or midia, "anexo": anexo}]
         if citada_id:
             msg["citada"] = {"id": citada_id, "texto": self._texto_de(chat, citada_id)}
+        publico = onde == "grupo" or (onde == "privada" and wa.get("meu_numero", True))
+        partes = []
+        if publico:
+            lugar = (f'no grupo "{m.get("ChatName") or chat}"' if onde == "grupo"
+                     else f'na conversa com {m.get("ChatName") or "+" + numero(chat)}')
+            partes.append(f"Atenção: esta mensagem veio {lugar} do WhatsApp, e a sua resposta vai aparecer lá, para "
+                          "todos que estão nessa conversa. Não exponha informação pessoal que não foi pedida.")
         if onde not in ("eu", "meu_grupo") and wa.get("contexto_mensagens"):
-            msg["contexto"] = self._contexto(chat, mid, wa["contexto_mensagens"])
-        if remetente and not de_mim:
-            self._remetentes[mid] = remetente
+            partes.append(self._contexto(chat, mid, wa["contexto_mensagens"]))
+        if any(partes):
+            msg["contexto"] = "\n\n".join(p for p in partes if p)
+        quem = self.eu if de_mim else remetente
+        if quem and (not de_mim or tipo_de_conversa(chat) == "grupo"):
+            self._remetentes[mid] = quem
             for k in list(self._remetentes)[:-200]:
                 self._remetentes.pop(k, None)
         return msg

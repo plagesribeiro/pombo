@@ -100,7 +100,7 @@ Dois jeitos (`whatsapp.meu_numero`):
 
 | Campo (`whatsapp.`) | O que é |
 |---|---|
-| `conversas` | onde ele escuta: `eu` (conversa com você mesmo), `privadas` (qualquer conversa individual), números (`5531...`) ou JIDs de grupo (`1203...@g.us`, veja com `wacli chats list --json`) |
+| `conversas` | onde ele escuta: `eu` (conversa com você mesmo), números (`5531...`), JIDs de grupo (`1203...@g.us`, veja com `wacli groups list --json`) ou por tipo: `privadas`, `grupos`, `todas`. Por tipo é a **pasta padrão**: vale onde nenhum outro bot do mesmo WhatsApp ligou a conversa pelo nome, e sempre com gatilho |
 | `gatilho` | palavra no começo da mensagem (`pombo`, `@pombo`, `Pombo:`). Em grupo e nas conversas dos outros é obrigatório |
 | `gatilho_sempre` | `true`: exige o gatilho também na conversa `eu` (e nas privadas do número do bot). Comandos (`/novo`, `/status`) dispensam |
 | `prefixo` | começo de toda resposta (`🐦 `). Não pode ficar vazio no número do usuário |
@@ -115,7 +115,9 @@ Dois jeitos (`whatsapp.meu_numero`):
   desse WhatsApp por alguns segundos (o wacli precisa do banco livre) e religa sozinho.
 - Áudio sem legenda numa conversa que pede o gatilho: o Pombo transcreve e só responde se o áudio começar com ele.
 - Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
-- No WhatsApp, o andamento é uma reação na mensagem: 👀 ao começar e ✅ no fim.
+- No WhatsApp, o andamento é uma reação na mensagem: 👀 recebeu, 🎧 ouvindo o áudio, 🧠 pensando, 🛠️ usando
+  ferramentas e ✅ quando a resposta sai (no máximo uma troca a cada 3 s).
+- Nas conversas dos outros, o agente é avisado de que a resposta aparece para todos daquela conversa.
 - Só um computador por número: dois `wacli` no mesmo número respondem em dobro.
 - "O bot do WhatsApp não liga": `pombo whatsapp status --bot ID` e `pombo log ID -n 80`. Se o WhatsApp desconectou o
   aparelho, o usuário roda `pombo whatsapp parear --bot ID` no terminal.

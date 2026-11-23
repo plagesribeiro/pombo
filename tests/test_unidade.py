@@ -422,12 +422,26 @@ class CanalWhatsApp(unittest.TestCase):
         self.assertTrue(m["exigir_gatilho"])
         self.assertEqual(m["audio"], (self.eu, m["id"]))
         self.assertTrue(self.c.baixar(m["audio"], os.path.join(self.store, "anexos")).endswith(".ogg"))
-        andamento = self.c.andamento(self.eu, m["id"])
-        andamento.fim()
-        andamento._olhos.join(10)  # o 👀 vai em paralelo
-        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀"])  # o ✅ espera a resposta sair
-        self.c.responder(self.eu, "pronto", responder_a=m["id"])
-        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀", "✅"])
+        from unittest import mock
+        with mock.patch("pombo.whatsapp.Reacao.INTERVALO", 0):
+            andamento = self.c.andamento(self.eu, m["id"])
+            for etapa in ("🎧 Ouvindo seu áudio…", "🧠 Pensando…", "📖 Lendo notas.md…", "⚙️ git status", "💭 Achei"):
+                andamento.mostrar(etapa)
+                __import__("time").sleep(0.4)
+            andamento.fim()
+            emojis = [x["emoji"] for x in self.f.reacoes(self.store)]
+            self.assertNotIn("✅", emojis)  # o ✅ espera a resposta sair
+            self.c.responder(self.eu, "pronto", responder_a=m["id"])
+        emojis = [x["emoji"] for x in self.f.reacoes(self.store)]
+        self.assertEqual((emojis[0], emojis[-1]), ("👀", "✅"))
+        self.assertTrue({"🎧", "🧠", "🛠️"} <= set(emojis), emojis)
+        # sem pausa de teste: as trocas rápidas viram uma só (no máximo uma a cada 3 s)
+        r2 = self.c.andamento(self.eu, m["id"])
+        for etapa in ("🧠 Pensando…", "📖 Lendo", "🧠 x", "⚙️ y"):
+            r2.mostrar(etapa)
+        r2.fim()
+        self.c.responder(self.eu, "pronto de novo", responder_a=m["id"])
+        self.assertLessEqual(len(self.f.reacoes(self.store)) - len(emojis), 3)
         n = len(self.recebidas)
         for x in self.f.reacoes(self.store):  # as reações aparecem no diário e são ignoradas
             self.c.examinar(self.eu, x["id"], self.desde)
@@ -537,6 +551,17 @@ class CanalWhatsApp(unittest.TestCase):
             self.assertEqual(self.c.wa.enviar_texto(self.eu, "oi", a_si=True), "B1")
 
 
+    def test_reacao_no_grupo_leva_o_remetente(self):
+        self.montar()
+        g = self.f.grupo(self.store, "🎓 Mestrado")
+        self.r.cfg["whatsapp"]["conversas"] = ["eu", g]
+        m = self.chegar(g, "oi")
+        r = self.c.andamento(g, m["id"])
+        r.fim()
+        self.c.responder(g, "oi!", responder_a=m["id"])
+        self.assertEqual({x["sender"] for x in self.f.reacoes(self.store)}, {self.eu})  # sem isso o wacli recusa
+
+
 class VariosBotsNoMesmoWhatsApp(unittest.TestCase):
     def setUp(self):
         from tests import wacli_falso
@@ -620,3 +645,64 @@ def mock_wacli(script):
     """O `bots criar` procura o wacli no PATH: aqui ele acha o falso."""
     from unittest import mock
     return mock.patch("pombo.whatsapp.achar_wacli", lambda caminho="": caminho or script)
+
+
+class PastaPadrao(unittest.TestCase):
+    """Conversas dos outros ("todas"): o bot da pasta padrão atende o gatilho onde nenhum outro bot foi ligado."""
+
+    def setUp(self):
+        from pombo import execucao
+        from tests import wacli_falso
+        self.f = wacli_falso
+        self.store = tempfile.mkdtemp(prefix="wacli-falso-")
+        self.eu = self.f.preparar(self.store)
+        script = os.path.join(RAIZ, "tests", "wacli_falso.py")
+        for b in config.listar_ids():
+            config.remover_bot(b)
+        self.grupo_mestrado = self.f.grupo(self.store, "🎓 Mestrado")
+        wa = {"wacli": script, "pasta_dados": self.store}
+        config.salvar_bot("mestrado-zap", {"canal": "whatsapp", "pasta": self.store,
+                                           "whatsapp": dict(wa, conversas=[self.grupo_mestrado], prefixo="🎓 ")})
+        cfg = config.salvar_bot("zap", {"canal": "whatsapp", "pasta": self.store,
+                                        "whatsapp": dict(wa, conversas=["eu", "todas"])})
+        self.r = execucao.BotRunner("zap", cfg, config.carregar_geral(), "")
+        self.recebidas = []
+        self.r.chegou = self.recebidas.append
+        self.c = self.r.canal
+        self.c.conhecer_numero()
+        self.desde = __import__("time").time() - 5
+
+    def chegar(self, chat, texto="", **kw):
+        mid = self.f.chegar(self.store, chat, texto, **kw)
+        n = len(self.recebidas)
+        self.c.examinar(chat, mid, self.desde)
+        return self.recebidas[-1] if len(self.recebidas) > n else None
+
+    def test_atende_conversas_dos_outros_com_gatilho(self):
+        familia = self.f.grupo(self.store, "Família", outros=["5531911112222"])
+        self.f.chegar(self.store, familia, "o almoço é domingo", de_mim=False,
+                      remetente="5531911112222@s.whatsapp.net", nome="Mãe")
+        self.assertIsNone(self.chegar(familia, "vou sim"))  # sem gatilho: conversa normal
+        m = self.chegar(familia, "pombo, põe o almoço na agenda")
+        self.assertEqual(m["texto"], "põe o almoço na agenda")
+        self.assertFalse(m["pode_comando"])
+        self.assertIn("vai aparecer lá", m["contexto"])  # o agente sabe que a resposta é pública
+        self.assertIn("Mãe: o almoço é domingo", m["contexto"])
+        ana = "5531933334444@s.whatsapp.net"
+        self.assertEqual(self.chegar(ana, "pombo, resume isso")["texto"], "resume isso")
+        self.assertIsNone(self.chegar(ana, "pombo, faz", de_mim=False))  # só as suas mensagens chamam o bot
+
+    def test_conversa_de_outra_pasta_e_dela(self):
+        self.assertEqual(self.c.liberacao(self.grupo_mestrado), (None, False))
+        self.assertIsNone(self.chegar(self.grupo_mestrado, "pombo, oi"))
+        # um grupo só seu que não é de nenhuma pasta: pela pasta padrão, ainda precisa do gatilho
+        notas = self.f.grupo(self.store, "Notas")
+        self.assertEqual(self.c.liberacao(notas), ("grupo", True))
+        self.assertIsNone(self.chegar(notas, "comprar pão"))
+        self.assertEqual(self.chegar(notas, "pombo, oi")["texto"], "oi")
+
+    def test_uma_pasta_padrao_por_whatsapp(self):
+        with self.assertRaises(config.ErroConfig) as e:
+            config.salvar_bot("outro", {"canal": "whatsapp", "pasta": self.store,
+                                        "whatsapp": {"wacli": "x", "pasta_dados": self.store, "conversas": ["grupos"]}})
+        self.assertIn("pasta padrão", str(e.exception))

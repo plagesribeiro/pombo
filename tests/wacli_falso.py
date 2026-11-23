@@ -4,7 +4,9 @@
 Os testes usam as funções `preparar`, `chegar` e `enviadas` daqui para simular o WhatsApp.
 O formato das respostas imita o do wacli de verdade (envelope {"success", "data", "error"}, campos do Message em Go).
 """
+import contextlib
 import datetime as dt
+import fcntl
 import json
 import os
 import sys
@@ -24,6 +26,11 @@ def preparar(store, eu="5531900000000"):
 def chegar(store, chat, texto="", de_mim=True, remetente=None, nome="", midia="", citada="", idade_s=0, legenda="",
            encaminhada=False):
     """Simula uma mensagem que o wacli sync acabou de gravar. Devolve o id."""
+    with _trava(store):
+        return _chegar(store, chat, texto, de_mim, remetente, nome, midia, citada, idade_s, legenda, encaminhada)
+
+
+def _chegar(store, chat, texto, de_mim, remetente, nome, midia, citada, idade_s, legenda, encaminhada):
     d = _carregar(store)
     d["seq"] += 1
     mid = f"MSG{d['seq']}"
@@ -37,6 +44,11 @@ def chegar(store, chat, texto="", de_mim=True, remetente=None, nome="", midia=""
 
 def grupo(store, nome, outros=()):
     """Cria um grupo com você (e os números em `outros`). Devolve o JID."""
+    with _trava(store):
+        return _grupo(store, nome, outros)
+
+
+def _grupo(store, nome, outros):
     d = _carregar(store)
     d["seq"] += 1
     jid = f"120363{d['seq']:06d}@g.us"
@@ -46,9 +58,10 @@ def grupo(store, nome, outros=()):
 
 
 def entrar_no_grupo(store, jid, numero):
-    d = _carregar(store)
-    d["grupos"][jid]["participantes"].append(numero)
-    _salvar(store, d)
+    with _trava(store):
+        d = _carregar(store)
+        d["grupos"][jid]["participantes"].append(numero)
+        _salvar(store, d)
 
 
 def enviadas(store):
@@ -61,13 +74,25 @@ def reacoes(store):
 
 # ---------------------------------------------------------------- por dentro
 
+@contextlib.contextmanager
+def _trava(store):
+    """Como o banco do wacli de verdade: um processo de cada vez mexe no estado."""
+    os.makedirs(store, exist_ok=True)
+    with open(os.path.join(store, "falso.lock"), "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def _carregar(store):
     with open(os.path.join(store, ARQ), encoding="utf-8") as f:
         return json.load(f)
 
 
 def _salvar(store, d):
-    tmp = os.path.join(store, ARQ + ".tmp")
+    tmp = os.path.join(store, f"{ARQ}.{os.getpid()}.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False)
     os.replace(tmp, os.path.join(store, ARQ))
@@ -127,6 +152,13 @@ def _registrar_envio(d, chat, texto, extra):
 def main(argv):
     op, pos = _opcoes(argv)
     store = op.get("store") or os.environ.get("WACLI_STORE_DIR") or os.path.expanduser("~/.wacli-falso")
+    if pos[:1] != ["sync"]:  # o sync fica rodando para sempre: não pode segurar a trava
+        with _trava(store):
+            return _main(op, pos, store)
+    return _main(op, pos, store)
+
+
+def _main(op, pos, store):
     try:
         d = _carregar(store)
     except OSError:

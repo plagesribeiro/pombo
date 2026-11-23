@@ -80,7 +80,7 @@ WHATSAPP_PADRAO = {
     "conta": "",                    # --account do wacli (para ter mais de um WhatsApp no mesmo computador)
     "pasta_dados": "",              # --store do wacli; vazio = o padrão dele (~/.wacli)
     "meu_numero": True,             # o WhatsApp pareado é o seu número (False: um número só do bot)
-    "conversas": ["eu"],            # "eu" (conversa com você mesmo), "privadas", números ou JIDs (grupos: ...@g.us)
+    "conversas": ["eu"],            # "eu", números, JIDs de grupo (...@g.us) ou "privadas", "grupos", "todas"
     "gatilho": "pombo",             # a mensagem começa com isso ("pombo, ..." ou "@pombo ...")
     "gatilho_sempre": True,         # exige o gatilho também na conversa "eu" e nas privadas do número do bot
     "prefixo": "🐦 ",               # começo de toda resposta (no seu número, é como o Pombo se reconhece)
@@ -103,6 +103,7 @@ ROTINA_PADRAO = {
 
 ID_VALIDO = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 HORA_VALIDA = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+CURINGAS = ("privadas", "grupos", "todas")  # conversas liberadas por tipo (a pasta padrão), não pelo nome
 JID_VALIDO = re.compile(r"^[0-9a-z.:_-]+@(s\.whatsapp\.net|g\.us|lid)$")
 
 
@@ -331,17 +332,18 @@ def validar_whatsapp(wa, usuarios):
     conversas = []
     for c in wa["conversas"]:
         c = str(c).strip().lower()
-        if c in ("eu", "privadas"):
+        if c == "eu" or c in CURINGAS:
             pass
         elif "@" in c:
             if not JID_VALIDO.match(c):
-                raise ErroConfig(f'conversa inválida: "{c}" (use "eu", "privadas", um número ou um JID como 1203...@g.us)')
+                raise ErroConfig(f'conversa inválida: "{c}" (use "eu", um número, um JID como 1203...@g.us, '
+                                 '"privadas", "grupos" ou "todas")')
         else:
             c = normalizar_numero(c)
         if c not in conversas:
             conversas.append(c)
     wa["conversas"] = conversas
-    grupos = any(c.endswith("@g.us") for c in conversas)
+    grupos = any(c.endswith("@g.us") for c in conversas) or "grupos" in conversas or "todas" in conversas
     if wa["meu_numero"]:
         if not wa["prefixo"].strip():
             raise ErroConfig("whatsapp.prefixo não pode ficar vazio no seu número: é por ele que o Pombo não responde "
@@ -441,6 +443,9 @@ def conferir_conversas(bot_id, cfg):
     if cfg.get("canal") != "whatsapp" or not cfg.get("ativo"):
         return
     minhas = set(cfg["whatsapp"]["conversas"])
+
+    def cobre(cs):  # "todas" cobre "privadas" e "grupos"
+        return set(cs) | ({"privadas", "grupos"} if "todas" in cs else set())
     for outro in listar_ids():
         if outro == bot_id:
             continue
@@ -450,9 +455,12 @@ def conferir_conversas(bot_id, cfg):
             continue
         if o["canal"] != "whatsapp" or not o["ativo"] or chave_whatsapp(o) != chave_whatsapp(cfg):
             continue
-        comum = sorted(minhas & set(o["whatsapp"]["conversas"]))
+        comum = sorted((minhas & set(o["whatsapp"]["conversas"])) |
+                       (cobre(minhas) & cobre(o["whatsapp"]["conversas"]) & {"privadas", "grupos"}))
         if comum:
-            nome = "a conversa com você mesmo" if comum[0] == "eu" else f"a conversa {comum[0]}"
+            nome = ("a conversa com você mesmo" if comum[0] == "eu" else
+                    f'"{comum[0]}" (a pasta padrão das conversas dos outros)' if comum[0] in CURINGAS else
+                    f"a conversa {comum[0]}")
             raise ErroConfig(f'{nome} já é do bot "{outro}" neste mesmo WhatsApp: cada conversa fica com um bot só. '
                              "Para outra pasta, crie um grupo só seu: pombo whatsapp grupo criar --bot " + bot_id)
 

@@ -177,6 +177,15 @@ class PontaAPonta(unittest.TestCase):
             time.sleep(0.5)
         return None
 
+    def reacoes_ate_o_fim(self, filtro, timeout=20):
+        """As reações de uma mensagem, esperando o ✅ (ele sai logo depois da resposta)."""
+        fim = time.time() + timeout
+        while True:
+            r = [x for x in self.wa.reacoes(self.store) if filtro(x)]
+            if (r and r[-1]["emoji"] == "✅") or time.time() > fim:
+                return r
+            time.sleep(0.5)
+
     def test_7_whatsapp(self):
         fim = time.time() + 20  # o bot do WhatsApp pega o checkpoint ao ligar
         while time.time() < fim and not (self.config.Estado("zap").ler().get("whatsapp") or {}).get("checkpoint"):
@@ -187,7 +196,8 @@ class PontaAPonta(unittest.TestCase):
         self.assertIsNotNone(r, f"o WhatsApp não respondeu. Enviadas: {self.wa.enviadas(self.store)}")
         self.assertTrue(r["text"].startswith("🐦 "))
         self.assertEqual((r["reply-to"], r["allow-self"]), (pedido, True))
-        self.assertEqual([x["emoji"] for x in self.wa.reacoes(self.store)][:2], ["👀", "✅"])
+        emojis = [x["emoji"] for x in self.reacoes_ate_o_fim(lambda x: x["alvo"] == pedido)]
+        self.assertEqual((emojis[0], emojis[-1]), ("👀", "✅"), emojis)  # no meio, as etapas (🧠, 🛠️)
         time.sleep(4)  # a resposta do próprio Pombo passa pelo diário e não pode virar outro pedido
         self.assertEqual(len([e for e in self.wa.enviadas(self.store) if e.get("text")]), 1, self.wa.enviadas(self.store))
         self.wa.chegar(self.store, self.eu, "/status")
@@ -207,6 +217,9 @@ class PontaAPonta(unittest.TestCase):
         r = self.esperar_zap(lambda e: "jabuticaba" in e.get("text", "").lower())
         self.assertIsNotNone(r, f"o grupo não respondeu. Enviadas: {self.wa.enviadas(self.store)}")
         self.assertEqual(r["to"], self.grupo)
+        reacoes = self.reacoes_ate_o_fim(lambda x: x["to"] == self.grupo)
+        self.assertTrue(reacoes and all(x["sender"] == self.eu for x in reacoes), reacoes)  # grupo exige o remetente
+        self.assertEqual(reacoes[-1]["emoji"], "✅")
         self.assertTrue(r["text"].startswith("🎓 "))
         self.assertFalse(any("jabuticaba" in e.get("text", "").lower() and e["to"] != self.grupo
                              for e in self.wa.enviadas(self.store)), "o bot da conversa eu respondeu no grupo")
