@@ -1234,7 +1234,7 @@ class CanalWhatsApp:
         if self.cfg().get("meu_numero", True) and self._pombo_atende(chat, tipo):
             return None, False
         for c in conversas:
-            if c == chat.lower() or (c.isdigit() and tipo == "privada" and numero(chat) == c):
+            if c == chat.lower() or (c.isdigit() and tipo == "privada" and numero(chat) in variantes(c)):  # com e sem o 9
                 return tipo, False
         curinga = "todas" in conversas or (tipo == "privada" and "privadas" in conversas) or \
             (tipo == "grupo" and "grupos" in conversas)
@@ -1361,7 +1361,7 @@ class CanalWhatsApp:
                 nomes |= {c for c in conv if c.endswith("@g.us")}
             self._reivindicadas = (agora, nomes)
         nomes = self._reivindicadas[1]
-        return chat.lower() in nomes or numero(chat) in nomes
+        return chat.lower() in nomes or bool(variantes(numero(chat)) & nomes)
 
     def examinar(self, chat, mid, desde):
         if not chat or not mid:

@@ -1087,6 +1087,19 @@ class NumeroDoBot(unittest.TestCase):
         # quem não está na lista continua sem resposta
         self.assertIsNone(self.chegar(self.bot_r, self.dobot, "5531944443333@s.whatsapp.net", "oi", de_mim=False))
 
+    def test_conversa_pelo_numero_com_e_sem_o_9(self):
+        # o número escrito com o 9 casa com a conversa que o WhatsApp guardou sem ele (e a pasta padrão sai da frente)
+        config.salvar_bot("convidados", {"canal": "whatsapp", "pasta": self.dobot,
+                                         "usuarios_permitidos": ["5531988887777", "5531976543210"],
+                                         "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=["5531976543210"],
+                                                          prefixo="")})
+        from pombo import execucao
+        r = execucao.BotRunner("convidados", config.carregar_bot("convidados"), config.carregar_geral(), "")
+        r.canal.conhecer_numero()
+        self.assertEqual(r.canal.liberacao("553176543210@s.whatsapp.net"), ("privada", False))
+        self.bot_r.canal._reivindicadas = (0.0, set())
+        self.assertEqual(self.bot_r.canal.liberacao("553176543210@s.whatsapp.net"), (None, False))
+
     def test_grupo_aberto_so_em_grupo_escolhido_e_no_numero_do_bot(self):
         base = {"canal": "whatsapp", "pasta": self.dobot}
         for wa in ({"meu_numero": True, "conversas": [self.grupo], "qualquer_pessoa": True},
