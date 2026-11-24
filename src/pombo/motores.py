@@ -19,8 +19,12 @@ def comando_claude(cfg, geral, bot_id, sistema, sessao):
         cmd += ["--permission-mode", "auto"]
     elif perm == "lista":
         cmd += ["--permission-mode", "dontAsk"]
-        if cfg["ferramentas_permitidas"]:
-            cmd += ["--allowedTools", *cfg["ferramentas_permitidas"]]
+        permitidas = list(cfg["ferramentas_permitidas"])
+        if permitidas:
+            # as fotos e os arquivos que chegam ficam fora da pasta do bot: sem isto, "abra com a ferramenta Read"
+            # esbarra na lista (// = caminho absoluto, na regra do Claude Code)
+            permitidas.append("Read(/" + os.path.realpath(config.caminho("anexos", bot_id)) + "/**)")
+            cmd += ["--allowedTools", *permitidas]
     if cfg["ferramentas_negadas"]:
         cmd += ["--disallowedTools", *cfg["ferramentas_negadas"]]
     if cfg.get("modelo"):

@@ -146,6 +146,31 @@ class Motor(unittest.TestCase):
         self.assertEqual(env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
         self.assertEqual(cmd[cmd.index("--model") + 1], "haiku")
 
+    def test_lista_le_os_anexos_do_bot(self):
+        cmd, _ = self.cmd(permissoes="lista", ferramentas_permitidas=["Read(./**)"])
+        regra = cmd[cmd.index("--allowedTools") + 2]
+        self.assertTrue(regra.startswith("Read(//") and regra.endswith(os.path.join("anexos", "m") + "/**)"), regra)
+
+    def test_so_manda_arquivo_da_pasta_quando_restrito(self):
+        from unittest import mock
+        from pombo import execucao
+        pasta = tempfile.mkdtemp()
+        dentro = os.path.join(pasta, "ok.txt")
+        fora = os.path.join(tempfile.mkdtemp(), "segredo.txt")
+        atalho = os.path.join(pasta, "atalho.txt")
+        for a in (dentro, fora):
+            open(a, "w").write("x")
+        os.symlink(fora, atalho)  # um atalho dentro da pasta apontando para fora também não vale
+        resposta = f"Aqui:\nENVIAR_ARQUIVO: {dentro}\nENVIAR_ARQUIVO: {fora}\nENVIAR_ARQUIVO: {atalho}"
+        for perm, restrito, esperado in (("lista", False, [dentro]), ("total", True, [dentro]),
+                                         ("total", False, [dentro, fora, atalho])):
+            cfg = config.validar_bot({"pasta": pasta, "usuarios_permitidos": [7], "permissoes": perm})
+            r = execucao.BotRunner("b", cfg, config.carregar_geral(), "t")
+            with mock.patch.object(r.canal, "responder", return_value=[]), \
+                    mock.patch.object(r.canal, "enviar_arquivo", return_value=1) as env:
+                r.enviar_resultado(7, resposta, None, {}, None, restrito=restrito)
+            self.assertEqual([c[0][1] for c in env.call_args_list], esperado, (perm, restrito))
+
     def test_mcps_do_bot(self):
         cmd, _ = self.cmd(mcps={"x": {"command": "echo"}}, so_mcps_do_bot=True)
         arq = cmd[cmd.index("--mcp-config") + 1]
@@ -1027,7 +1052,8 @@ class NumeroDoBot(unittest.TestCase):
         ze = "5531955556666@s.whatsapp.net"
         m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 qual o prazo?", de_mim=False,
                         remetente=ze, nome="Zé")
-        self.assertEqual((m["texto"], m["de"], m["nome_de"], m["pode_comando"]), ("qual o prazo?", "5531955556666", "Zé", False))
+        self.assertEqual((m["texto"], m["de"], m["nome_de"], m["pode_comando"]),
+                         ("qual o prazo?", "5531955556666", "Zé (+5531955556666)", False))
         self.assertIn("e não", m["contexto"])  # o agente sabe que não foi o dono quem pediu
         self.assertFalse(self.bot_r.canal.eh_dono(m["de"]))
         self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, "conversa normal", de_mim=False, remetente=ze))
@@ -1037,6 +1063,29 @@ class NumeroDoBot(unittest.TestCase):
         m = self.chegar(self.bot_r, self.dobot, self.grupo, "pombo, oi", de_mim=False, remetente="553188887777@s.whatsapp.net")
         self.assertTrue(self.bot_r.canal.eh_dono(m["de"]))
         self.assertIsNone(m["nome_de"])
+
+    def test_conversa_direta_de_outra_pessoa_liberada(self):
+        # uma lista de números que podem falar com o número do bot: atendidos sem marcar, mas como convidados
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["usuarios_permitidos"] = ["+55 31 98888-7777", "5531955556666"]
+        config.salvar_bot("pombo-zap", cfg)
+        self.bot_r.cfg = config.carregar_bot("pombo-zap")
+        bia = "5531955556666@s.whatsapp.net"
+        m = self.chegar(self.bot_r, self.dobot, bia, "me explica o que é um CDB", de_mim=False, nome="Bia")
+        self.assertEqual((m["texto"], m["nome_de"], m["convidado"]), ("me explica o que é um CDB", "Bia (+5531955556666)", True))
+        self.assertIn("e não", m["contexto"])
+        self.assertFalse(m["pode_comando"])
+        # comandos: só o /novo (o /status e o /parar mostrariam ou parariam o pedido de outra pessoa)
+        self.assertFalse(self.chegar(self.bot_r, self.dobot, bia, "/status", de_mim=False)["pode_comando"])
+        self.assertFalse(self.chegar(self.bot_r, self.dobot, bia, "/parar", de_mim=False)["pode_comando"])
+        self.assertTrue(self.chegar(self.bot_r, self.dobot, bia, "/novo", de_mim=False)["pode_comando"])
+        # o dono continua com tudo
+        dono = "553188887777@s.whatsapp.net"
+        m = self.chegar(self.bot_r, self.dobot, dono, "/status", de_mim=False)
+        self.assertTrue(m["pode_comando"])
+        self.assertFalse(m["convidado"])
+        # quem não está na lista continua sem resposta
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, "5531944443333@s.whatsapp.net", "oi", de_mim=False))
 
     def test_grupo_aberto_so_em_grupo_escolhido_e_no_numero_do_bot(self):
         base = {"canal": "whatsapp", "pasta": self.dobot}

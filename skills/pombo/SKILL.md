@@ -104,7 +104,10 @@ Dois jeitos (`whatsapp.meu_numero`):
   abrir a conta errada). Quem estiver em `usuarios_permitidos` chama: na conversa direta, qualquer mensagem; nos
   grupos, marcando o bot (@ + o número dele) ou com o gatilho. O primeiro da lista recebe as rotinas. Quem não estiver
   aparece em `_desconhecidos` (e não recebe resposta). O Pombo reconhece os liberados com e sem o 9 do celular e pelo
-  LID dos números pareados no mesmo computador.
+  LID dos números pareados no mesmo computador. Quem não é o primeiro da lista é **convidado**: o agente é avisado de
+  que não foi o dono, a pessoa só usa o `/novo` e só recebe arquivos da pasta do bot. Para deixar outras pessoas
+  falarem com o número do bot na conversa direta, crie um bot isolado (como o do grupo aberto, abaixo) com os números
+  delas em `conversas` e em `usuarios_permitidos` (o dono primeiro); a conversa direta do dono continua no outro bot.
 - Os dois juntos: o número do usuário (conversa "eu" e "pombo, ..." onde o bot não está) e o número do bot nos
   grupos. Onde um número de bot deste computador está (grupo ou conversa direta), o bot do número do usuário com
   curinga sai da frente; grupo ligado pelo nome a um bot de outro número também é dele. Um grupo fica com um bot só.

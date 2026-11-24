@@ -159,7 +159,9 @@ O Pombo guarda o seu ID, e os próximos bots que você criar já nascem liberado
 | `/atualizar` | baixa a versão nova do Pombo, reinicia e avisa quando voltar (só o dono do bot) |
 
 Para receber um arquivo, peça ("me manda o PDF da proposta"). O Claude responde com `ENVIAR_ARQUIVO: /caminho` e o
-Pombo manda o arquivo no chat.
+Pombo manda o arquivo no chat. Bot com `permissoes: "lista"` (e qualquer pedido de quem não é o dono) só manda arquivo
+da pasta dele ou dos anexos que recebeu: quem manda é o Pombo, então a trava de leitura do Claude não valeria ali.
+Nesse modo, o bot também ganha sozinho a leitura dos anexos que chegam (fotos e arquivos ficam fora da pasta dele).
 
 A conversa recomeça sozinha depois de 6 horas parada (ajustável). O que o bot deve saber sempre vai no `CLAUDE.md` da
 pasta dele, como em qualquer sessão do Claude Code, ou no campo **Instruções** do painel.
@@ -256,6 +258,10 @@ pombo whatsapp grupo ligar --bot obra-zap --nome "Obra" --so-o-grupo  # uma past
   todos veem, e qualquer um do grupo gasta a sua assinatura. Ex.: `ferramentas_permitidas: ["Read(./**)", "WebSearch",
   "WebFetch"]` e `ferramentas_negadas: ["Bash", "Grep", "Glob", "Task", "Agent", "Write", "Edit", "Skill"]` (a regra
   `Read(./**)` não prende o `Grep` nem o `Glob` à pasta).
+- **Conversa direta com convidados:** para outras pessoas falarem com o número do Pombo, ponha os números delas em
+  `usuarios_permitidos` (depois do seu, que é o primeiro: o dono) e em `conversas` de um bot isolado como o do grupo
+  aberto. Quem não é o dono é tratado como convidado: o Claude sabe que não foi você, a pessoa só usa o `/novo` (o
+  `/status` e o `/parar` mostrariam ou parariam o pedido de outra pessoa) e cada conversa tem a sua sessão.
 - Só quem estiver liberado chama, mesmo quando o WhatsApp esconde o número em grupos (o Pombo reconhece você pelo LID
   e com ou sem o 9 do celular).
 - O número do Pombo precisa de um WhatsApp principal num celular (o WhatsApp Business serve, num aparelho com dois

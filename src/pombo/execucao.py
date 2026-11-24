@@ -438,7 +438,20 @@ class BotRunner:
             texto = r.stdout.strip()
         return (texto, None) if texto else (None, (r.stdout + r.stderr)[-300:])
 
-    def enviar_resultado(self, chat, resultado, erro, info, sessao, responder_a=None, cabecalho=""):
+    def arquivo_liberado(self, caminho):
+        """Da pasta do bot ou dos anexos que ele recebeu (o caminho de verdade, sem atalho para fora)?"""
+        real = os.path.realpath(caminho)
+        for base in (config.pasta_do_bot(self.cfg), config.caminho("anexos", self.id)):
+            b = os.path.realpath(base)
+            if real == b or real.startswith(b.rstrip(os.sep) + os.sep):
+                return True
+        return False
+
+    def enviar_resultado(self, chat, resultado, erro, info, sessao, responder_a=None, cabecalho="", restrito=False):
+        """restrito: só manda arquivo da pasta do bot (bot com lista de permissões, ou pedido de quem não é o dono).
+        Quem manda o arquivo é o Pombo, não o agente: sem isso, uma linha ENVIAR_ARQUIVO pegaria qualquer arquivo
+        do computador, mesmo com o agente proibido de ler fora da pasta."""
+        restrito = restrito or self.cfg["permissoes"] == "lista"
         arquivos = re.findall(r"(?m)^\s*ENVIAR_ARQUIVO:\s*(.+?)\s*$", resultado or "")
         texto = re.sub(r"(?m)^\s*ENVIAR_ARQUIVO:.*$\n?", "", resultado or "").strip()
         if erro and not texto:
@@ -451,7 +464,10 @@ class BotRunner:
         for a in arquivos:
             a = os.path.expanduser(a.strip().strip('"'))
             try:
-                if os.path.isfile(a) and os.path.getsize(a) < canal.limite_arquivo:
+                if restrito and not self.arquivo_liberado(a):
+                    self.log(f"arquivo de fora da pasta não enviado: {a}")
+                    canal.responder(chat, f"🔒 Não mandei `{os.path.basename(a)}`: este bot só manda arquivos da pasta dele.")
+                elif os.path.isfile(a) and os.path.getsize(a) < canal.limite_arquivo:
                     ids.append(canal.enviar_arquivo(chat, a))
                 else:
                     canal.responder(chat, f"Não consegui mandar o arquivo `{a}` (não existe ou passa de "
@@ -557,7 +573,7 @@ class BotRunner:
                 str(chat), {"id": nova, "ultima": time.time()}))
         finally:
             andamento.fim()
-        enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid)
+        enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid, restrito=bool(m.get("convidado")))
         self.registrar(inicio, "mensagem", prompt, enviado, erro, info, nova)
         self.log(f"respondido ({len(enviado)} caracteres, {n_arq} arquivos)" + (f"; erro: {erro}" if erro else ""))
 

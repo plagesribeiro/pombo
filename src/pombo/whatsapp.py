@@ -1414,7 +1414,8 @@ class CanalWhatsApp:
             return False  # encaminhada: é conteúdo de outra pessoa, nunca pedido
         remetente = m.get("SenderJID") or ""
         nome = ""
-        convidado = False
+        convidado = False  # no número do bot, quem pediu não é o dono: o agente fica sabendo e os comandos não valem
+        aberto = False  # grupo aberto: quem pediu nem está liberado (o áudio dele não é transcrito)
         if wa.get("meu_numero", True):
             if de_mim:
                 de = "eu"
@@ -1429,14 +1430,16 @@ class CanalWhatsApp:
             bruto = numero(remetente) or numero(chat)
             de = self.liberado(remetente or chat)
             if not de and wa.get("qualquer_pessoa") and onde == "grupo":
-                de, convidado = bruto, True  # grupo aberto: qualquer pessoa que chamar o bot é atendida
+                de, aberto = bruto, True  # grupo aberto: qualquer pessoa que chamar o bot é atendida
             if not de:
                 if onde != "grupo":
                     r.log(f"ignorado: mensagem de +{bruto}, que não está liberado")
                     r.anotar_desconhecido(bruto, m.get("SenderName") or "", "", texto)
                 return False
-            # o dono: o nome que vem é o dos contatos do celular do bot (às vezes "Eu"); vale o do Pombo (usuario_nome)
-            nome = "" if self.eh_dono(de) and not convidado else (m.get("SenderName") or ("+" + de if convidado else ""))
+            convidado = aberto or not self.eh_dono(de)
+            # o dono: o nome que vem é o dos contatos do celular do bot (às vezes "Eu"); vale o do Pombo (usuario_nome).
+            # Os outros: o nome que a pessoa pôs no WhatsApp (qualquer um pode pôr qualquer nome) e o número
+            nome = "" if not convidado else f"{(m.get('SenderName') or '').strip()} (+{de})".strip()
         # gatilho
         citada_id = m.get("quoted_msg_id") or ""
         responde_ao_bot = bool(citada_id) and citada_id in (est.get("enviadas") or [])
@@ -1457,19 +1460,23 @@ class CanalWhatsApp:
         # comandos (/status, /parar...) só na conversa "eu" e nas privadas do número do bot: num grupo ou na conversa
         # dos outros, mostrariam o que o dono está fazendo (ou parariam o pedido dele)
         pode_comando = onde in ("eu", "meu_grupo") or (not wa.get("meu_numero", True) and onde == "privada")
+        if convidado and pode_comando:
+            # quem não é o dono só começa uma conversa nova: /status e /parar mostrariam ou parariam o pedido de outra
+            # pessoa, e /rodar rodaria as rotinas do dono
+            pode_comando = (texto.strip().split() or [""])[0].split("@")[0].lower() == "/novo"
         comando_livre = pode_comando and eh_comando(texto)
         exigir_gatilho_no_audio = False
         if precisa and not achou and not responde_ao_bot and not comando_livre:
             # o gatilho pode estar falado no começo do áudio: transcreve calado e confere (inclusive pela pasta
             # padrão, em qualquer conversa; o áudio dos outros nunca chega aqui, a não ser de quem estiver liberado)
             if midia == "audio" and not texto.strip() and wa.get("gatilho") and r.cfg.get("transcricao_cmd") \
-                    and not convidado:  # o áudio de quem não é liberado não é transcrito: só com legenda chamando o bot
+                    and not aberto:  # o áudio de quem não é liberado não é transcrito: só com legenda chamando o bot
                 exigir_gatilho_no_audio = True
             else:
                 return False
         msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto,
                "pode_comando": pode_comando, "audio": None, "fotos": [], "arquivos": [], "citada": {},
-               "exigir_gatilho": exigir_gatilho_no_audio}
+               "exigir_gatilho": exigir_gatilho_no_audio, "convidado": convidado}
         anexo = (chat, mid)
         if midia == "audio":
             msg["audio"] = anexo
@@ -1489,7 +1496,8 @@ class CanalWhatsApp:
         conversa_com_o_bot = onde == "privada" and not wa.get("meu_numero", True)  # é só você e ele, como a "eu"
         if convidado:
             dono = (r.geral.get("usuario_nome") or "").strip() or "o dono deste bot"
-            partes.append(f"Quem pediu foi {nome}, uma pessoa do grupo, e não {dono}. Responda só ao que foi pedido. Não "
+            quem = "uma pessoa do grupo" if onde == "grupo" else "uma pessoa liberada para falar com este número"
+            partes.append(f"Quem pediu foi {nome}, {quem}, e não {dono}. Responda só ao que foi pedido. Não "
                           f"faça nada em nome de {dono} (mandar mensagem, mexer em arquivos, agenda, e-mail) e não conte "
                           f"nada pessoal sobre {dono}.")
         if onde not in ("eu", "meu_grupo") and not conversa_com_o_bot and wa.get("contexto_mensagens"):
