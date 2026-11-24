@@ -1137,6 +1137,54 @@ class NumeroDoBot(unittest.TestCase):
         self.bot_r.canal._reivindicadas = (0.0, set())
         self.assertEqual(self.bot_r.canal.liberacao("553176543210@s.whatsapp.net"), (None, False))
 
+    def test_grupo_do_numero_do_bot_com_o_dono_e_so_seu(self):
+        # o grupo de você com o número do bot (os dois e mais ninguém) dispensa o gatilho, como um grupo só seu
+        meu = self.f.grupo(self.dobot, "Mac Pessoal", outros=["553188887777"])
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["whatsapp"]["conversas"] = [meu]
+        config.salvar_bot("pombo-zap", cfg)
+        self.bot_r.cfg = config.carregar_bot("pombo-zap")
+        self.bot_r.canal._grupos_meus.clear()
+        m = self.chegar(self.bot_r, self.dobot, meu, "oi, sem gatilho", de_mim=False, remetente="553188887777@s.whatsapp.net")
+        self.assertEqual(m["texto"], "oi, sem gatilho")
+        # entrou mais alguém: volta a exigir o gatilho
+        self.f.entrar_no_grupo(self.dobot, meu, "5531955556666")
+        self.bot_r.canal._grupos_meus.clear()
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, meu, "conversa", de_mim=False,
+                                      remetente="553188887777@s.whatsapp.net"))
+        # no seu número, o grupo só com você continua só seu (e com mais alguém, não)
+        self.meu_r.canal._grupos_meus.clear()
+        so_eu = self.f.grupo(self.meu, "Só eu")
+        self.assertTrue(self.meu_r.canal.grupo_so_meu(so_eu))
+        self.assertFalse(self.meu_r.canal.grupo_so_meu(self.familia))
+
+    def test_grupo_criado_no_numero_do_bot_ja_tem_o_dono(self):
+        from pombo import cli
+        jid = cli.criar_grupo(dict(self.wa_bot, meu_numero=False), "Novo", ["5531988887777"])
+        gente = [p["user_jid"] for p in self.w.Wacli(self.wa_bot).participantes(jid)]
+        self.assertIn("5531988887777@s.whatsapp.net", gente)
+        jid = cli.criar_grupo(self.wa_meu, "Meu", ["5531988887777"])  # no seu número, só você
+        self.assertEqual(len(self.w.Wacli(self.wa_meu).participantes(jid)), 1)
+
+    def test_comando_que_pausa_nao_roda_de_dentro_do_proprio_bot(self):
+        from unittest import mock
+        from pombo import cli
+        with mock.patch.dict(os.environ, {"POMBO_BOT": "pombo-zap"}), self.assertRaises(SystemExit):
+            with cli.bots_pausados(dict(self.wa_bot, meu_numero=False)):
+                pass
+        self.assertTrue(config.carregar_bot("pombo-zap")["ativo"])  # nada foi pausado
+
+    def test_pausa_interrompida_e_religada_e_somada(self):
+        # uma pausa morre no meio (o processo some); outra pausa depois soma os bots e, ao terminar, religa todos
+        self.w.pausar_para(self.wa_bot)
+        arq = self.w._arq_pausa(self.wa_bot)
+        d = config.ler_json(arq, {})
+        d["pid"] = 999999
+        config.gravar_json(arq, d)
+        self.w.pausar_para(self.wa_bot)  # já estão pausados: nada novo, mas os de antes continuam anotados
+        self.w.religar_de(self.wa_bot)
+        self.assertTrue(config.carregar_bot("pombo-zap")["ativo"])
+
     def test_desconhecidos_o_ultimo_da_fila(self):
         # bot aberto para quem não está liberado: você fica no bot com "todas", o convidado no bot dele
         config.salvar_bot("publico", {"canal": "whatsapp", "pasta": self.dobot, "usuarios_permitidos": ["5531988887777"],

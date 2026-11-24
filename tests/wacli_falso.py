@@ -148,6 +148,8 @@ def _opcoes(args):
                 op[nome] = True
             else:
                 op[nome] = args[i + 1] if i + 1 < len(args) else ""
+                if nome == "user":  # repetível (groups create --user A --user B)
+                    op.setdefault("users", []).append(op[nome])
                 i += 1
         else:
             resto.append(a)
@@ -276,7 +278,8 @@ def _main(op, pos, store):
     if cmd == ["groups", "create"]:
         d["seq"] += 1
         jid = _jid_grupo(store, d["seq"])
-        d.setdefault("grupos", {})[jid] = {"nome": op.get("name"), "participantes": [d["eu"]]}
+        convidados = ["".join(ch for ch in u if ch.isdigit()) for u in op.get("users") or []]
+        d.setdefault("grupos", {})[jid] = {"nome": op.get("name"), "participantes": [d["eu"]] + convidados}
         _salvar(store, d)
         _saida({"JID": jid, "GroupName": {"Name": op.get("name")}, "Participants": [{"JID": eu}]})
     if cmd == ["media", "download"]:

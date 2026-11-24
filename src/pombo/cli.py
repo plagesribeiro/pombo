@@ -155,7 +155,7 @@ def cmd_bots(a):
                     cfg["usuarios_permitidos"] = [meu_telefone()]  # quem chama o bot: você
                     print(f"Liberado para chamar o bot: +{meu_telefone()} (o seu número). Outros: pombo bots liberar")
             if a.grupo:
-                cfg["whatsapp"]["conversas"] = [criar_grupo(cfg["whatsapp"], a.grupo)]
+                cfg["whatsapp"]["conversas"] = [criar_grupo(cfg["whatsapp"], a.grupo, cfg.get("usuarios_permitidos") or [])]
         cfg = config.salvar_bot(a.id, cfg)
         print(f'Bot "{a.id}" criado em {config.arq_bot(a.id)}.')
         if canal == "whatsapp":
@@ -326,8 +326,14 @@ def bots_do_mesmo_whatsapp(wa):
 def bots_pausados(wa):
     """Para o que precisa do banco do wacli só para si (criar grupo, parear): pausa os bots deste WhatsApp (o sync
     deles para), espera o banco ficar livre e, no fim, religa."""
-    from .whatsapp import ErroWhatsApp, Wacli, esperar_banco_livre, pausar_para, religar_de
+    from .whatsapp import ErroWhatsApp, Wacli, bots_do_numero, esperar_banco_livre, pausar_para, religar_de
     w = Wacli(wa)
+    de_dentro = os.environ.get("POMBO_BOT") or ""
+    if de_dentro and de_dentro in bots_do_numero(wa):
+        # pausar o bot de onde o comando veio derruba a própria conversa no meio (e o comando junto, antes de religar)
+        sair(f'Este comando pausa os bots deste WhatsApp por uns segundos, inclusive o "{de_dentro}", de onde ele foi '
+             "chamado: a conversa cairia no meio. Rode no terminal do computador. Para um grupo novo, dá também para "
+             "criar no celular (com o número do bot nele) e ligar com: pombo whatsapp grupo ligar --bot ID --nome \"Nome\"")
     pausados = pausar_para(wa)  # anotados: se este comando morrer no meio, o serviço religa ao subir
     try:
         if pausados:
@@ -341,13 +347,15 @@ def bots_pausados(wa):
         religar_de(wa)
 
 
-def criar_grupo(wa, nome):
-    """Cria um grupo só com você (o wacli precisa do banco livre: os bots deste WhatsApp pausam por uns segundos).
+def criar_grupo(wa, nome, usuarios=()):
+    """Cria um grupo só com você (o wacli precisa do banco livre: os bots deste WhatsApp pausam por uns segundos). No
+    número do bot, o dono (o primeiro de usuarios_permitidos) entra junto: sem ele, só o bot estaria no grupo.
     Devolve o JID."""
     from .whatsapp import ErroWhatsApp
+    convidados = [] if wa.get("meu_numero", True) else list(usuarios)[:1]
     with bots_pausados(wa) as w:
         try:
-            jid = w.criar_grupo(nome)
+            jid = w.criar_grupo(nome, convidados)
         except ErroWhatsApp as e:
             sair(f"Não consegui criar o grupo: {e}\nDá para criar no celular (um grupo só com você) e ligar com: "
                  f'pombo whatsapp grupo ligar --bot ID --nome "{nome}"')
@@ -490,7 +498,7 @@ def cmd_whatsapp_grupo(a, w):
     cfg = config.validar_bot(config.carregar_bot(a.bot))
     wa = cfg["whatsapp"]
     if a.grupo_acao == "criar":
-        jid = criar_grupo(wa, a.nome or f"🐦 {cfg['nome']}")
+        jid = criar_grupo(wa, a.nome or f"🐦 {cfg['nome']}", cfg["usuarios_permitidos"])
     else:
         if not a.nome:
             sair("faltou --nome (o nome do grupo, ou o JID ...@g.us)")

@@ -224,7 +224,15 @@ class Servico:
         except OSError as e:
             log(f"o painel não abriu na porta {self.geral['painel_porta']}: {e}")
         threading.Thread(target=self._laco_agenda, name="agenda", daemon=True).start()
+        ultima_pausa = time.time()
         while True:
+            if time.time() - ultima_pausa > 30:
+                ultima_pausa = time.time()
+                try:
+                    from .whatsapp import restaurar_pausas
+                    restaurar_pausas()  # uma pausa (pareamento, grupo novo) cujo processo morreu no meio
+                except Exception:
+                    log("erro ao religar bots de uma pausa interrompida:\n" + traceback.format_exc())
             try:
                 self.reconciliar()
             except Exception:

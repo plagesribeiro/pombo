@@ -126,7 +126,9 @@ Dois jeitos (`whatsapp.meu_numero`):
 
 - **Uma pasta, um grupo:** no número do usuário só existe uma conversa "eu". Para várias pastas, cada bot ganha um
   grupo só do usuário (`--grupo` no `bots criar`, ou `pombo whatsapp grupo criar --bot ID`). Num grupo em que só o
-  usuário está, não precisa de gatilho; se entrar mais alguém, volta a exigir. Cada conversa fica com **um** bot só
+  usuário está (no número do bot: só o usuário e o bot), não precisa de gatilho; se entrar mais alguém, volta a exigir.
+  Grupo criado pelo número do bot já entra com o dono. `grupo criar` e `parear` pausam os bots do número por uns
+  segundos: não rode de dentro de um bot desse número (o Pombo recusa), rode no terminal. Cada conversa fica com **um** bot só
   (o `salvar` recusa duas iguais no mesmo WhatsApp), e todos dividem o mesmo `wacli sync`. Criar grupo pausa os bots
   desse WhatsApp por alguns segundos (o wacli precisa do banco livre) e religa sozinho.
 - Áudio sem legenda numa conversa que pede o gatilho: o Pombo transcreve calado e só responde se o áudio começar com

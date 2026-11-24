@@ -334,9 +334,13 @@ class Wacli:
         """Ninguém (nenhum `wacli sync`) segura o banco agora?"""
         return not self.rodar(["doctor"], ler=True, timeout=30).get("lock_held")
 
-    def criar_grupo(self, nome):
-        """Cria um grupo só com você. Precisa do banco livre (o sync parado). Devolve o JID."""
-        d = self.rodar(["groups", "create", "--name", nome], timeout=180)
+    def criar_grupo(self, nome, convidados=()):
+        """Cria um grupo (com quem pareou e os convidados: no número do bot, o dono). Precisa do banco livre (o sync
+        parado). Devolve o JID."""
+        args = ["groups", "create", "--name", nome]
+        for c in convidados:
+            args += ["--user", "+" + re.sub(r"\D", "", str(c))]
+        d = self.rodar(args, timeout=180)
         jid = d.get("JID") or d.get("jid") or ""
         if not str(jid).endswith("@g.us"):
             raise ErroWhatsApp(f"o wacli criou o grupo, mas não devolveu o JID ({json.dumps(d)[:200]})")
@@ -578,7 +582,9 @@ def pausar_para(wa):
     morra no meio (o serviço confere ao ligar: restaurar_pausas)."""
     ids = bots_do_numero(wa)
     marcas = pausar_bots(ids)
-    config.gravar_json(_arq_pausa(wa), {"pid": os.getpid(), "quando": time.time(), "bots": marcas})
+    # uma pausa anterior que morreu no meio deixou bots pausados: entram também, senão ninguém mais os religa
+    anterior = config.ler_json(_arq_pausa(wa), {}).get("bots") or {}
+    config.gravar_json(_arq_pausa(wa), {"pid": os.getpid(), "quando": time.time(), "bots": {**anterior, **marcas}})
     return ids
 
 
@@ -601,7 +607,8 @@ def religar_de(wa):
 
 
 def restaurar_pausas():
-    """Ao ligar o serviço: religa os bots de um pareamento que morreu no meio (reinício, Ctrl+C, queda)."""
+    """Religa os bots de uma pausa (pareamento, grupo novo) cujo processo morreu no meio (reinício, Ctrl+C, queda, ou
+    o comando rodado de dentro de um bot que acabou pausado). O serviço confere ao ligar e a cada meio minuto."""
     try:
         nomes = [n for n in os.listdir(config.caminho("estado")) if n.startswith("pausados-") and n.endswith(".json")]
     except OSError:
@@ -620,8 +627,16 @@ def restaurar_pausas():
         if vivo:
             continue  # um `pombo whatsapp parear` ainda está rodando no terminal
         marcas = d.get("bots") or {}
-        pausar_bots([b for b in marcas if config.existe(b)], ativo=True)
-        registro.log(None, f"religados os bots de um pareamento interrompido: {', '.join(marcas) or 'nenhum'}")
+        religar = []
+        for b, mtime in marcas.items():
+            try:
+                if abs(os.path.getmtime(config.arq_bot(b)) - mtime) < 0.001:
+                    religar.append(b)  # quem alguém mexeu nesse meio-tempo (pausa feita à mão) fica como está
+            except OSError:
+                pass
+        pausar_bots(religar, ativo=True)
+        registro.log(None, f"religados os bots de uma pausa interrompida (pareamento ou grupo novo): "
+                           f"{', '.join(religar) or 'nenhum'}")
         try:
             os.remove(arq)
         except OSError:
@@ -999,6 +1014,11 @@ class CanalWhatsApp:
         achado = next((v for v in variantes(u[0]) if v in telefones), u[0])  # o JID de verdade (com ou sem o 9)
         return f"{achado}@s.whatsapp.net"
 
+    def _sou_eu(self, jid):
+        """O próprio número pareado (pelo telefone, com e sem o 9, ou pelo LID)."""
+        return bool(self.meu_numero) and (numero(jid) in variantes(self.meu_numero) or jid in self.meus_jids or
+                                          (bool(self.meu_lid) and numero(jid) == self.meu_lid))
+
     def eh_dono(self, de):
         if self.cfg().get("meu_numero", True):
             return de == "eu"
@@ -1219,10 +1239,13 @@ class CanalWhatsApp:
         if guardado and agora - guardado[0] < CACHE_GRUPO_S:
             return guardado[1]
         try:
-            gente = {numero(p.get("user_jid") or p.get("UserJID") or "") or p.get("user_jid")
-                     for p in self.wa.participantes(grupo) if isinstance(p, dict)}
-            gente.discard("")
-            sozinho = len(gente) == 1  # você está no grupo: se só tem uma pessoa, é você
+            jids = {p.get("user_jid") or p.get("UserJID") or "" for p in self.wa.participantes(grupo) if isinstance(p, dict)}
+            jids.discard("")
+            # fora quem pareou (o seu número, ou o do bot) e o dono do bot, ninguém: no número do bot, o grupo de você
+            # com ele também é "só seu". A lista vazia (erro, grupo desconhecido) não conta como só seu
+            outros = {j for j in jids if not self._sou_eu(j) and not (not self.cfg().get("meu_numero", True)
+                                                                     and self.eh_dono(self.liberado(j)))}
+            sozinho = bool(jids) and not outros
         except ErroWhatsApp as e:
             self.r.log(f"não consegui ver quem está no grupo {grupo} ({e})")
             sozinho = False
@@ -1477,7 +1500,11 @@ class CanalWhatsApp:
         if mid in (est.get("enviadas") or []):
             return False
         if onde == "grupo" and not curinga and self.grupo_so_meu(chat):
-            onde = "meu_grupo"  # funciona como a conversa "eu", sem gatilho
+            # funciona como a conversa "eu", sem gatilho; mas só para o dono (a lista de participantes que o wacli
+            # guarda pode estar velha: mensagem de outra pessoa prova que o grupo não é só seu)
+            if (bool(m.get("FromMe")) if wa.get("meu_numero", True)
+                    else self.eh_dono(self.liberado(m.get("SenderJID") or ""))):
+                onde = "meu_grupo"
         midia = (m.get("MediaType") or "").lower()
         if midia and midia != "audio" and midia not in FOTOS + ARQUIVOS:
             midia, texto = "", (m.get("Text") or m.get("DisplayText") or "")
