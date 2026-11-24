@@ -955,6 +955,7 @@ class CanalWhatsApp:
         self._reivindicadas = (0.0, set())  # conversas que outros bots liberaram pelo nome
         self._outros = (0.0, [])            # (quando, [(número de bot deste computador, bots ligados dele)])
         self.aviso_padrao = ""              # outro computador também é a pasta padrão deste número
+        self._avisos_dobrados = set()       # conversas diretas ligadas aqui e em outro computador (já avisadas no log)
 
     def cfg(self):
         return self.r.cfg.get("whatsapp") or {}
@@ -1235,6 +1236,8 @@ class CanalWhatsApp:
             return None, False
         for c in conversas:
             if c == chat.lower() or (c.isdigit() and tipo == "privada" and numero(chat) in variantes(c)):  # com e sem o 9
+                if tipo == "privada" and self._privada_de_outro_computador(chat):
+                    return None, False
                 return tipo, False
         if tipo == "privada" and config.DESCONHECIDOS in conversas and not self._atendido_por_outro(chat):
             return tipo, True  # o último da fila: ninguém mais deste número atende esta pessoa
@@ -1245,6 +1248,24 @@ class CanalWhatsApp:
                 return None, False
             return tipo, True
         return None, False
+
+    def _privada_de_outro_computador(self, chat):
+        """A mesma conversa direta ligada pelo número aqui e num bot de outro computador com o mesmo WhatsApp: os dois
+        responderiam. Só um responde (o computador de nome menor), e os dois avisam no log para tirar de um deles."""
+        vs = variantes(numero(chat))
+        meu_nome = (self.r.geral.get("nome_maquina") or "").casefold()
+        for maquina, n, o in config.bots_de_outros_computadores():
+            conv = [str(c).lower() for c in (o.get("whatsapp") or {}).get("conversas") or []]
+            if not self._mesmo_numero(n) or not any(c.isdigit() and variantes(c) & vs for c in conv):
+                continue
+            aviso = (f'a conversa com +{numero(chat)} está ligada aqui e no bot "{o.get("id")}" do computador "{maquina}": '
+                     "responde só um; tire de um dos dois")
+            if aviso not in self._avisos_dobrados:
+                self._avisos_dobrados.add(aviso)
+                self.r.log(aviso)
+            if maquina.casefold() < meu_nome:
+                return True
+        return False
 
     def _mesmo_numero(self, n):
         return bool(self.meu_numero) and bool(variantes(n.get("telefone")) & variantes(self.meu_numero))

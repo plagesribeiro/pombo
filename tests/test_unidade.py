@@ -1204,6 +1204,23 @@ class VariosComputadores(unittest.TestCase):
         return {"id": id, "nome": id, "ativo": True, "usuarios_permitidos": list(usuarios),
                 "whatsapp": {"meu_numero": meu_numero, "conversas": conversas}}
 
+    def test_conversa_direta_ligada_nos_dois_computadores_responde_um(self):
+        config.salvar_bot("convidados", {"canal": "whatsapp", "pasta": self.dobot,
+                                         "usuarios_permitidos": ["5531988887777", "5531976543210"],
+                                         "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=["5531976543210"],
+                                                          prefixo="")})
+        from pombo import execucao
+        r = execucao.BotRunner("convidados", config.carregar_bot("convidados"), self.geral, "")
+        r.canal.conhecer_numero()
+        bia = "553176543210@s.whatsapp.net"
+        self.assertEqual(r.canal.liberacao(bia), ("privada", False))
+        # o mesmo convidado na lista do Mac: responde só o de nome menor ("Mac" < "Ubuntu"), e avisa no log
+        self.outro([self.bot(["553176543210"], id="convidados", usuarios=("5531988887777", "553176543210"))])
+        self.assertEqual(r.canal.liberacao(bia), (None, False))
+        self.assertTrue(any("tire de um dos dois" in a for a in r.canal._avisos_dobrados))
+        self.outro([self.bot(["553176543210"], id="convidados")], nome="Zeta")  # agora o daqui é o de nome menor
+        self.assertEqual(r.canal.liberacao(bia), ("privada", False))
+
     def test_grupo_de_um_bot_do_outro_computador_e_dele(self):
         c = self.bot_r.canal
         self.assertEqual(c.liberacao(self.obra), ("grupo", True))  # antes: a pasta padrão daqui atende
