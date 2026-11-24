@@ -156,6 +156,9 @@ class Servico:
     # ---------------------------------------------------------------- atualização (pombo atualizar)
 
     def ocioso(self):
+        from .whatsapp import pareando_agora
+        if pareando_agora():  # reiniciar no meio mataria o pareamento (e deixaria os bots daquele número pausados)
+            return False
         with self._trava:
             return all(not r.ocupado and r.fila.empty() for r in self.runners.values())
 
@@ -209,6 +212,11 @@ class Servico:
     def rodar(self):
         config.garantir_pastas()
         trava_instancia()
+        try:
+            from .whatsapp import restaurar_pausas
+            restaurar_pausas()  # um pareamento que morreu no meio (reinício, queda) deixou bots pausados?
+        except Exception:
+            log("erro ao religar bots de um pareamento interrompido:\n" + traceback.format_exc())
         log(f"serviço ligado em \"{self.geral['nome_maquina']}\" (configuração em {config.base()})")
         from . import painel
         try:

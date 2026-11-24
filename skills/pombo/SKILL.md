@@ -24,7 +24,10 @@ pombo bots criar ID --pasta P --canal whatsapp [--numero-separado] [--conta C]  
 pombo whatsapp parear [--bot ID] [--telefone +55...] [--historico 3] [--por-conversa 50] [--de-novo]
                                       # QR (ou código) no terminal: só o usuário faz, no celular. Pede pouco histórico
                                       # (o celular manda o histórico por horas e isso pesa nele); --de-novo refaz
-pombo whatsapp status [--bot ID]      # se está pareado e qual número
+pombo whatsapp status                 # os WhatsApps deste computador (pareados ou não) e os bots de cada um
+pombo whatsapp parear --numero pombo --telefone +55...   # um número a mais, só do bot (~/.wacli-pombo)
+pombo whatsapp grupos --numero pombo  # os grupos em que esse número está (para ligar a um bot)
+pombo bots criar ID --pasta P --canal whatsapp --numero pombo --numero-separado --usuario +55...
 pombo bots criar ID --pasta P --canal whatsapp --grupo "🎓 Nome"   # bot novo já com um grupo só do usuário
 pombo whatsapp grupo criar --bot ID [--nome N] [--so-o-grupo]     # cria um grupo só do usuário e liga ao bot
 pombo whatsapp grupo ligar --bot ID --nome "Nome do grupo"|JID    # liga um grupo que já existe
@@ -96,9 +99,15 @@ Dois jeitos (`whatsapp.meu_numero`):
   pelo gatilho ("pombo, ...") nas conversas liberadas. Toda resposta começa com o prefixo (🐦): é assim que o Pombo
   não responde a si mesmo. Mensagens dos outros nunca acionam o bot, a não ser de quem estiver em
   `usuarios_permitidos`, com o gatilho, numa conversa liberada.
-- `false` (`--numero-separado`): um número só do bot. Quem estiver em `usuarios_permitidos` fala com ele como com
-  qualquer contato; o primeiro da lista recebe as rotinas. Quem não estiver aparece em `_desconhecidos` (e não recebe
-  resposta).
+- `false` (`--numero-separado`): um número só do bot (um chip a mais, pareado com `--numero NOME`, que fica em
+  `~/.wacli-NOME`; nunca use `wacli accounts add`: a primeira conta criada vira a padrão e o número já pareado passa a
+  abrir a conta errada). Quem estiver em `usuarios_permitidos` chama: na conversa direta, qualquer mensagem; nos
+  grupos, marcando o bot (@ + o número dele) ou com o gatilho. O primeiro da lista recebe as rotinas. Quem não estiver
+  aparece em `_desconhecidos` (e não recebe resposta). O Pombo reconhece os liberados com e sem o 9 do celular e pelo
+  LID dos números pareados no mesmo computador.
+- Os dois juntos: o número do usuário (conversa "eu" e "pombo, ..." onde o bot não está) e o número do bot nos
+  grupos. Onde um número de bot deste computador está (grupo ou conversa direta), o bot do número do usuário com
+  curinga sai da frente; grupo ligado pelo nome a um bot de outro número também é dele. Um grupo fica com um bot só.
 
 | Campo (`whatsapp.`) | O que é |
 |---|---|

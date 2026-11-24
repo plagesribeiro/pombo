@@ -231,8 +231,30 @@ Num grupo só seu, é só escrever, sem gatilho. Se entrar mais alguém, ele vol
 com um bot só, e todos dividem a mesma conexão do WhatsApp (o Pombo pausa os bots por alguns segundos para criar um
 grupo, porque o wacli precisa do banco livre).
 
-**Num número só do bot** (`pombo bots criar zap --pasta P --canal whatsapp --numero-separado`): o bot vira um contato.
-Libere quem pode falar com ele (`pombo bots liberar zap +55 31 99999-0000`), e a conversa é como a do Telegram.
+**Um número só do Pombo** (um chip a mais). O bot vira um contato: você o põe nos grupos e conversa com ele direto,
+como no Telegram, e o risco de bloqueio fica no número dele. Dá para ter os dois: o seu número com a conversa "Você" e
+o "pombo, ..." nas conversas dos outros, e o número do Pombo nos grupos.
+
+```bash
+pombo whatsapp parear --numero pombo --telefone "+55 31 99999-0000"   # ou no painel, cartão WhatsApp
+pombo bots criar pombo-zap --pasta ~/pessoal --canal whatsapp --numero pombo --numero-separado \
+  --usuario "+55 31 98888-7777"                                         # quem pode chamar (você)
+pombo whatsapp grupos --numero pombo                                  # os grupos em que ele está
+pombo bots criar obra-zap --pasta ~/obra --canal whatsapp --numero pombo --numero-separado --usuario "+55 31 98888-7777"
+pombo whatsapp grupo ligar --bot obra-zap --nome "Obra" --so-o-grupo  # uma pasta para um grupo
+```
+
+- **Nos grupos**, ele responde quando você o marca (**@Pombo**) ou começa com "pombo, ..." (texto ou áudio). Na
+  **conversa direta** com ele, responde tudo.
+- **Uma pasta por grupo:** o bot ligado a um grupo pelo nome atende lá; o bot com `todas` (a pasta padrão) atende nos
+  outros grupos e na conversa direta. Tudo isso dá para escolher no painel, com a lista de grupos do número.
+- **Onde o número do Pombo está, o bot do seu número sai da frente** (nem o "pombo, ..." vai para ele ali), para não
+  responder em dobro.
+- Só quem estiver liberado chama, mesmo quando o WhatsApp esconde o número em grupos (o Pombo reconhece você pelo LID
+  e com ou sem o 9 do celular).
+- O número do Pombo precisa de um WhatsApp principal num celular (o WhatsApp Business serve, num aparelho com dois
+  chips). Ele precisa abrir de vez em quando: com uns 14 dias sem internet, o WhatsApp desconecta os aparelhos
+  ligados a ele.
 
 Um número só pode estar em **um** computador com o Pombo (dois responderiam em dobro). O `wacli` guarda as conversas
 no disco (`~/.wacli`): deixe o disco criptografado.

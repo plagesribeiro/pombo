@@ -321,6 +321,8 @@ def validar_whatsapp(wa, usuarios):
         raise ErroConfig('whatsapp.reacoes precisa ser "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"')
     if wa["conta"] and not re.match(r"^[A-Za-z0-9_.-]+$", wa["conta"]):
         raise ErroConfig("whatsapp.conta é o nome de uma conta do wacli (letras, números, ponto, hífen)")
+    if wa["conta"] and wa["pasta_dados"]:
+        raise ErroConfig("use whatsapp.conta ou whatsapp.pasta_dados, não os dois (o wacli não aceita --account com --store)")
     for campo, minimo, maximo in (("contexto_mensagens", 0, 50), ("intervalo_s", 1, 60)):
         try:
             wa[campo] = int(wa[campo])
@@ -456,7 +458,14 @@ def conferir_conversas(bot_id, cfg):
             o = validar_bot(carregar_bot(outro))
         except ErroConfig:
             continue
-        if o["canal"] != "whatsapp" or not o["ativo"] or chave_whatsapp(o) != chave_whatsapp(cfg):
+        if o["canal"] != "whatsapp" or not o["ativo"]:
+            continue
+        if chave_whatsapp(o) != chave_whatsapp(cfg):
+            # outro número: só os grupos batem (o JID do grupo é o mesmo em qualquer número)
+            comum = sorted({c for c in minhas & set(o["whatsapp"]["conversas"]) if c.endswith("@g.us")})
+            if comum:
+                raise ErroConfig(f'o grupo {comum[0]} já é do bot "{outro}" (em outro número): cada grupo fica com um bot '
+                                 "só. Tire o grupo de lá antes, ou pause aquele bot")
             continue
         comum = sorted((minhas & set(o["whatsapp"]["conversas"])) |
                        (cobre(minhas) & cobre(o["whatsapp"]["conversas"]) & {"privadas", "grupos"}))

@@ -15,7 +15,8 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
 - `src/pombo/telegram.py`: cliente da API do Telegram e `CanalTelegram` (getUpdates, andamento editando a mensagem).
 - `src/pombo/whatsapp.py`: `CanalWhatsApp`, pelo programa `wacli` (github.com/openclaw/wacli): `Sincronizador` deixa
   o `wacli sync --follow` rodando, o diário `messages changes` faz o papel do offset, e `avaliar` decide o que é para o
-  bot (conversa, quem mandou, gatilho, prefixo das próprias respostas).
+  bot (conversa, quem mandou, gatilho ou menção, prefixo das próprias respostas). Um número a mais (o de um bot) fica
+  em `~/.wacli-NOME` (`--store`); `numeros_locais` lista os números do computador e `Pareamento` pareia pelo painel.
 - `src/pombo/motores.py`: monta o comando do `claude -p` (permissões, MCPs, plugins, env). Outro motor (Codex) entra aqui.
 - `src/pombo/servico.py`: liga/desliga bots conforme os arquivos (recarrega a cada 2 s) e o agendador (a cada 20 s).
 - `src/pombo/rotinas.py`: quando uma rotina deve rodar (funções puras, testadas).

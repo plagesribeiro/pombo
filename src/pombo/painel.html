@@ -81,6 +81,11 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .chip button{border:0;background:none;cursor:pointer;color:var(--muted);font-size:1rem;line-height:1;padding:0 4px}
 .linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .linha > input{flex:1;min-width:140px}
+.zap-onde,.zap-grupos{display:grid;gap:4px}
+.tog.grupo small{color:var(--muted)}
+.zap-num{display:grid;gap:2px;padding:8px 0;border-bottom:1px solid var(--line)}
+.zap-num:last-child{border-bottom:0}
+.codigo{font:600 1.9rem/1.2 var(--mono);letter-spacing:.12em;text-align:center;padding:10px;border-radius:8px;background:var(--accent-soft);color:var(--accent);margin:6px 0}
 .pedido{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-radius:8px;background:var(--warn-soft)}
 .pedido span{flex:1;min-width:160px;font-size:.88rem}
 .rot{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
@@ -128,9 +133,21 @@ details.card[open] > summary::after{content:" ▾"}
       <label class="f"><span class="l">Id (vira o nome do arquivo)</span><input type="text" id="n-id" placeholder="trabalho"></label>
       <label class="f"><span class="l">Pasta onde ele trabalha</span><input type="text" id="n-pasta" placeholder="~/projetos/trabalho"></label>
       <label class="f"><span class="l">Onde ele conversa</span><select id="n-canal"><option value="telegram">Telegram (bot do @BotFather)</option><option value="whatsapp">WhatsApp (pelo wacli)</option></select></label>
+      <label class="f" id="n-numero-box" hidden><span class="l">Número do WhatsApp</span><select id="n-numero"><option value="">padrão</option></select></label>
       <label class="tog"><input type="checkbox" id="n-separado"><span>WhatsApp: número só do bot<small>Desmarcado, é o seu número (conversa com você mesmo).</small></span></label>
       <button class="btn pri" id="n-criar">Criar bot</button>
       <span class="erro-txt" id="n-erro"></span>
+    </details>
+    <details class="card" id="zap">
+      <summary>WhatsApp</summary>
+      <div id="zap-lista"><p class="hint">Carregando…</p></div>
+      <label class="f"><span class="l">Parear</span><select id="zp-numero"><option value="">padrão</option><option value="__novo">número novo…</option></select></label>
+      <label class="f" id="zp-nome-box" hidden><span class="l">Nome do número novo</span><input type="text" id="zp-nome" placeholder="pombo"><span>Uma palavra só. Fica em <code>~/.wacli-NOME</code>.</span></label>
+      <label class="f"><span class="l">Telefone do número (com DDI e DDD)</span><input type="text" id="zp-tel" inputmode="tel" placeholder="+55 31 99999-0000"></label>
+      <label class="tog"><input type="checkbox" id="zp-denovo"><span>Desfazer o pareamento atual antes<small>Use se o número já estava pareado.</small></span></label>
+      <button class="btn pri" id="zp-parear">Gerar o código</button>
+      <div id="zp-status"></div>
+      <p class="hint">Pede só 3 dias de histórico: o Pombo não precisa de mais, e o histórico inteiro pesa no celular.</p>
     </details>
     <details class="card" id="maquina">
       <summary>Este computador</summary>
@@ -349,24 +366,104 @@ function desenharBot() {
   barra();
 }
 
+// ---------------------------------------------------------------- WhatsApp: números, grupos e pareamento
+
+let ZAP = null;       // /api/whatsapp: os números deste computador
+let GRUPOS = {};      // chave do número -> grupos (ou "carregando" / {erro})
+let PAREANDO = null;  // o número sendo pareado agora ({chave} ou {novo})
+const CURINGAS = ["privadas", "grupos", "todas"];
+
+// a mesma chave que o servidor calcula (config.chave_whatsapp): conta|pasta absoluta
+function chaveNum(w) {
+  let p = w.pasta_dados || "";
+  if (p.startsWith("~") && ZAP && ZAP.casa) p = ZAP.casa + p.slice(1);
+  p = p.replace(/\/+/g, "/").replace(/(.)\/$/, "$1");
+  return (w.conta || "") + "|" + p;
+}
+function nomeNum(n) { return n.numero ? n.numero : "padrão"; }
+function numeroDe(w) { return ZAP ? ZAP.numeros.find(n => n.chave === chaveNum(w)) : null; }
+function donoDoGrupo(jid) {
+  const j = jid.toLowerCase();
+  const b = (E ? E.bots : []).find(x => x.id !== sel && x.cfg && x.cfg.canal === "whatsapp" && ((x.cfg.whatsapp || {}).conversas || []).includes(j));
+  return b ? b.id : null;
+}
+
+async function carregarZap(forcar) {
+  if (ZAP && !forcar) return ZAP;
+  try { ZAP = await api("GET", "/api/whatsapp"); } catch (e) { ZAP = {numeros: [], erro: e.message}; }
+  desenharZap();
+  return ZAP;
+}
+
+async function carregarGrupos(w, forcar) {
+  const k = chaveNum(w);
+  if (GRUPOS[k] && GRUPOS[k] !== "carregando" && !forcar) return;
+  GRUPOS[k] = "carregando";
+  try {
+    GRUPOS[k] = (await api("GET", "/api/whatsapp/grupos?chave=" + encodeURIComponent(k))).grupos;
+  } catch (e) { GRUPOS[k] = {erro: e.message}; }
+  if (rasc && rasc.canal === "whatsapp" && chaveNum(rasc.whatsapp || {}) === k) desenharBot();
+}
+
 function whatsappHTML(b, c) {
-  const w = c.whatsapp || {}, e = b.estado || {};
-  const pareado = (e.username || "").startsWith("+");
+  const w = c.whatsapp || {};
+  if (!ZAP) carregarZap().then(() => { if (rasc && rasc.canal === "whatsapp") desenharBot(); });
+  const n = numeroDe(w);
+  const conv = w.conversas || [];
+  const tem = x => conv.includes(x);
+  const grupos = GRUPOS[chaveNum(w)];
+  if (!grupos && n && n.pareado) carregarGrupos(w);
+  const meus = conv.filter(x => x.endsWith("@g.us"));
+  const outras = conv.filter(x => x !== "eu" && !CURINGAS.includes(x) && !x.endsWith("@g.us"));
+  const opcoes = (ZAP ? ZAP.numeros : []).map(x => `<option value="${esc(x.chave)}" ${x.chave === chaveNum(w) ? "selected" : ""}>${esc(nomeNum(x))} · ${x.pareado ? "+" + esc(x.telefone) : "não pareado"}</option>`).join("")
+    || `<option>${esc(w.pasta_dados || w.conta || "padrão")}</option>`;
+  let listaGrupos;
+  if (!n || !n.pareado) listaGrupos = `<p class="hint">Pareie este número (cartão <b>WhatsApp</b>, na barra ao lado) para escolher os grupos.</p>`;
+  else if (!grupos || grupos === "carregando") listaGrupos = `<p class="hint">Carregando os grupos…</p>`;
+  else if (grupos.erro) listaGrupos = `<p class="erro-txt">${esc(grupos.erro)}</p>`;
+  else {
+    const conhecidos = new Set(grupos.map(g => g.jid.toLowerCase()));
+    const linhas = grupos.map(g => {
+      const dono = donoDoGrupo(g.jid);
+      return `<label class="tog grupo"><input type="checkbox" data-zap-grupo="${esc(g.jid)}" ${meus.includes(g.jid.toLowerCase()) ? "checked" : ""} ${dono ? "disabled" : ""}><span>${esc(g.nome)}${dono ? `<small>já é do bot ${esc(dono)}</small>` : ""}</span></label>`;
+    }).concat(meus.filter(j => !conhecidos.has(j)).map(j => `<label class="tog grupo"><input type="checkbox" data-zap-grupo="${esc(j)}" checked><span><code>${esc(j)}</code><small>grupo que este número não enxerga agora</small></span></label>`));
+    listaGrupos = (linhas.join("") || `<p class="hint">Este número não está em nenhum grupo ainda. Adicione-o no celular e toque em atualizar.</p>`)
+      + `<div><button class="btn" id="zap-grupos-atualizar">Atualizar a lista</button></div>`;
+  }
+  const chamar = w.meu_numero
+    ? `Comece com "${esc(w.gatilho || "pombo")}" (texto ou áudio). Na conversa "Você", ${w.gatilho_sempre ? "também precisa" : "não precisa"}.`
+    : `Nos grupos: marcando @ o número ou começando com "${esc(w.gatilho || "pombo")}" (texto ou áudio). Na conversa direta: ${w.gatilho_sempre ? "começando com o gatilho" : "qualquer mensagem"}.`;
   return `<div class="card">
     <h2>WhatsApp <small>pelo wacli, como aparelho conectado</small></h2>
-    <div class="linha"><span>Número: ${pareado ? `<b class="ok">${esc(e.username)}</b>` : `<b class="bad">não pareado</b> <small class="det">no terminal: <code>pombo whatsapp parear${w.conta ? " --conta " + esc(w.conta) : ""}</code></small>`}</span></div>
-    <label class="tog"><input type="checkbox" data-w="1" data-c="meu_numero" data-t="bool" ${w.meu_numero ? "checked" : ""}><span>É o meu número<small>${w.meu_numero ? "Você fala com o bot na conversa com você mesmo (\"eu\") ou chamando pelo gatilho nas conversas liberadas. Toda resposta começa com o prefixo." : "Um número só do bot: quem estiver liberado abaixo conversa com ele como com qualquer contato."}</small></span></label>
     <div class="grid2">
-      <label class="f"><span class="l">Conversas onde ele escuta (uma por linha)</span><textarea class="code" data-w="1" data-c="conversas" data-t="linhas" placeholder="eu">${esc((w.conversas || []).join("\n"))}</textarea>
-        <span class="det"><code>eu</code> = conversa com você mesmo · um número (+55...) · um grupo (<code>1203...@g.us</code>) · por tipo, como pasta padrão (sempre com gatilho, onde nenhum outro bot foi ligado): <code>privadas</code>, <code>grupos</code>, <code>todas</code>. Uma pasta por grupo: <code>pombo whatsapp grupo criar --bot ${esc(sel)}</code> cria um grupo só seu, onde não precisa de gatilho.</span></label>
-      <div>
-        <label class="f"><span class="l">Gatilho (a mensagem começa com ele)</span><input type="text" data-w="1" data-c="gatilho" value="${esc(w.gatilho)}" placeholder="pombo"></label>
-        <label class="tog"><input type="checkbox" data-w="1" data-c="gatilho_sempre" data-t="bool" ${w.gatilho_sempre ? "checked" : ""}><span>Exigir o gatilho sempre<small>Desligado, na conversa "eu" (e nas privadas do número do bot) ele responde tudo. Em grupo e nas conversas dos outros, o gatilho é sempre obrigatório. Áudio vale se começar com o gatilho falado.</small></span></label>
-        <label class="f"><span class="l">Prefixo das respostas</span><input type="text" data-w="1" data-c="prefixo" value="${esc(w.prefixo)}" placeholder="🐦 "></label>
+      <label class="f"><span class="l">Número que ele usa</span><select id="zap-numero">${opcoes}</select>
+        <span class="det">${n && n.pareado ? `Pareado: <b class="ok">+${esc(n.telefone)}</b>` : `<b class="bad">Não pareado.</b> Pareie no cartão <b>WhatsApp</b>, na barra ao lado.`}</span></label>
+      <label class="tog"><input type="checkbox" data-w="1" data-c="meu_numero" data-t="bool" ${w.meu_numero ? "checked" : ""}><span>É o meu número<small>${w.meu_numero ? "Mensagens saem do seu número. Só as suas mensagens (e as de quem você liberar) chamam o bot." : "Um número só do bot. Onde ele estiver, ele atende, e o bot do seu número sai da frente."}</small></span></label>
+    </div>
+    <div class="f"><span class="l" style="font-size:.82rem;color:var(--muted);font-weight:600">Onde ele escuta</span>
+      <div class="zap-onde">
+        ${w.meu_numero ? `<label class="tog"><input type="checkbox" data-zap-conv="eu" ${tem("eu") ? "checked" : ""}><span>Conversa com você mesmo ("Você")</span></label>` : ""}
+        <label class="tog"><input type="checkbox" data-zap-conv="todas" ${tem("todas") ? "checked" : ""}><span>Pasta padrão: todas as outras conversas<small>Toda conversa e grupo que não for de outro bot.${w.meu_numero ? " Só com o gatilho." : ""}</small></span></label>
+        ${tem("todas") ? "" : `<label class="tog"><input type="checkbox" data-zap-conv="privadas" ${tem("privadas") ? "checked" : ""}><span>${w.meu_numero ? "Conversas individuais (com o gatilho)" : "Conversas diretas com este número"}</span></label>
+        <label class="tog"><input type="checkbox" data-zap-conv="grupos" ${tem("grupos") ? "checked" : ""}><span>Grupos que não forem de outro bot</span></label>`}
       </div>
     </div>
+    <div class="f"><span class="l" style="font-size:.82rem;color:var(--muted);font-weight:600">Grupos desta pasta</span>
+      <div class="zap-grupos">${listaGrupos}</div>
+      <span class="det">Grupo marcado aqui é deste bot, mesmo que outro bot seja a pasta padrão.</span>
+    </div>
+    <label class="f"><span class="l">Outras conversas, pelo número (separadas por vírgula)</span><input type="text" id="zap-outras" value="${esc(outras.join(", "))}" placeholder="+55 31 99999-0000"></label>
+    <div class="grid2">
+      <div>
+        <label class="f"><span class="l">Gatilho</span><input type="text" data-w="1" data-c="gatilho" value="${esc(w.gatilho)}" placeholder="pombo"></label>
+        <label class="tog"><input type="checkbox" data-w="1" data-c="gatilho_sempre" data-t="bool" ${w.gatilho_sempre ? "checked" : ""}><span>${w.meu_numero ? "Exigir o gatilho também na conversa \"Você\"" : "Exigir o gatilho também na conversa direta"}</span></label>
+        <p class="hint">${chamar}</p>
+      </div>
+      <label class="f"><span class="l">Prefixo das respostas</span><input type="text" data-w="1" data-c="prefixo" value="${esc(w.prefixo)}" placeholder="${w.meu_numero ? "🐦 " : "(nenhum)"}">
+        <span class="det">${w.meu_numero ? "No seu número, é por ele que o Pombo não responde a si mesmo." : "Opcional: as respostas já saem do contato do bot."}</span></label>
+    </div>
     <div>
-      <div class="det" style="margin-bottom:6px">${w.meu_numero ? "Outras pessoas que podem chamar o bot (com o gatilho, nas conversas liberadas):" : "Quem pode falar com o bot (número com DDI):"}</div>
+      <div class="det" style="margin-bottom:6px">${w.meu_numero ? "Outras pessoas que podem chamar o bot (com o gatilho, nas conversas liberadas):" : "Quem pode chamar o bot (número com DDI; o primeiro recebe as rotinas):"}</div>
       <div class="chips">
         ${c.usuarios_permitidos.map((u, i) => `<span class="chip">+${esc(u)}<button title="Tirar" data-tirar="${i}">×</button></span>`).join("") || `<span class="det">${w.meu_numero ? "só você" : "ninguém ainda"}</span>`}
         <input type="text" id="usu-novo" placeholder="+55 31 99999-0000" style="width:170px"><button class="btn" id="usu-add">Adicionar</button>
@@ -378,14 +475,52 @@ function whatsappHTML(b, c) {
     <details><summary class="det">Mais opções do WhatsApp</summary>
       <div class="grid2">
         <label class="f"><span class="l">Caminho do wacli</span><input type="text" data-w="1" data-c="wacli" value="${esc(w.wacli)}" placeholder="procura sozinho"></label>
-        <label class="f"><span class="l">Conta do wacli (--account)</span><input type="text" data-w="1" data-c="conta" value="${esc(w.conta)}" placeholder="padrão"></label>
-        <label class="f"><span class="l">Mensagens anteriores como contexto (fora da conversa "eu")</span><input type="number" min="0" max="50" data-w="1" data-c="contexto_mensagens" data-t="int" value="${esc(w.contexto_mensagens)}"></label>
+        <label class="f"><span class="l">Mensagens anteriores como contexto (fora da conversa "Você")</span><input type="number" min="0" max="50" data-w="1" data-c="contexto_mensagens" data-t="int" value="${esc(w.contexto_mensagens)}"></label>
         <label class="f"><span class="l">Pausa entre envios</span><input type="text" data-w="1" data-c="espaco_entre_envios" value="${esc(w.espaco_entre_envios)}" placeholder="1s-3s"></label>
         <label class="f"><span class="l">Reações na sua mensagem</span><select data-w="1" data-c="reacoes">${[["simples","👀 e ✅"],["etapas","👀 🎧 🧠 🛠️ ✅ (cada troca chega no seu celular)"],["nenhuma","nenhuma"]].map(([v, t]) => `<option value="${v}" ${(w.reacoes || "simples") === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       </div>
     </details>
     <p class="hint">O wacli não é oficial: o WhatsApp pode bloquear números que usam clientes não oficiais. Use com calma (pouco volume, sem mandar para quem não pediu).</p>
   </div>`;
+}
+
+function desenharZap() {
+  const box = $("#zap-lista");
+  if (!box) return;
+  if (!ZAP) { box.innerHTML = `<p class="hint">Carregando…</p>`; return; }
+  box.innerHTML = ZAP.numeros.map(n => `<div class="zap-num">
+      <div><b>${esc(nomeNum(n))}</b> ${n.pareado ? `<span class="pill p-ligado">+${esc(n.telefone)}</span>` : `<span class="pill p-pausado">não pareado</span>`}</div>
+      <small class="det">${n.bots.length ? n.bots.map(b => esc(b.id) + (b.ativo ? "" : " (pausado)")).join(", ") : "nenhum bot"} · <code>${esc(n.pasta_dados || n.conta || "pasta padrão do wacli")}</code></small>
+    </div>`).join("") || `<p class="hint">Nenhum número ainda.</p>`;
+  const lista = $("#zp-numero");
+  if (lista && !lista.matches(":focus")) {
+    const atual = lista.dataset.escolhido;
+    lista.innerHTML = `<option value="__novo">número novo…</option>` + ZAP.numeros.map(n => `<option value="${esc(n.chave)}">${esc(nomeNum(n))}${n.pareado ? " · +" + esc(n.telefone) + " (parear de novo)" : " · não pareado"}</option>`).join("");
+    const padrao = ZAP.numeros.find(n => !n.pasta_dados && !n.conta);
+    // com o seu número já pareado, começa em "número novo…": parear por cima dele desfaria o seu pareamento
+    lista.value = atual && [...lista.options].some(o => o.value === atual) ? atual : (padrao && !padrao.pareado ? padrao.chave : "__novo");
+    $("#zp-nome-box").hidden = lista.value !== "__novo";
+  }
+}
+
+async function acompanharPareamento(alvo) {
+  PAREANDO = alvo;
+  const st = $("#zp-status");
+  while (PAREANDO === alvo) {
+    let r;
+    try { r = await api("GET", "/api/whatsapp/parear?" + new URLSearchParams(alvo)); } catch (e) { st.innerHTML = `<p class="erro-txt">${esc(e.message)}</p>`; PAREANDO = null; break; }
+    if (r.estado === "nenhum") { st.innerHTML = `<p class="erro-txt">O pareamento parou (o serviço reiniciou?). Gere outro código.</p>`; PAREANDO = null; break; }
+    if (r.estado === "codigo" || r.estado === "sincronizando") {
+      st.innerHTML = r.estado === "codigo"
+        ? `<div class="codigo">${esc(r.codigo)}</div><p class="hint">No celular do número: WhatsApp → Configurações → Aparelhos conectados → Conectar um aparelho → <b>Conectar com número de telefone</b>, e digite o código.</p>`
+        : `<p class="hint">Pareou! Trazendo as conversas dos últimos dias…</p>`;
+    } else if (r.estado === "pareado") {
+      st.innerHTML = `<p class="ok">Pronto: o número está pareado. Os bots dele já voltaram.</p>`; PAREANDO = null; await carregarZap(true); toast("WhatsApp pareado."); break;
+    } else if (r.estado === "erro") {
+      st.innerHTML = `<p class="erro-txt">${esc(r.mensagem || "não pareou")}</p>`; PAREANDO = null; break;
+    } else st.innerHTML = `<p class="hint">Preparando (os bots desse número pausam por um instante)…</p>`;
+    await new Promise(ok => setTimeout(ok, 2000));
+  }
 }
 
 function rotinaHTML(r, i, b) {
@@ -477,6 +612,52 @@ document.addEventListener("input", ev => {
   barra();
 });
 
+document.addEventListener("change", ev => {
+  const el = ev.target;
+  if (el.id === "zp-numero") { el.dataset.escolhido = el.value; $("#zp-nome-box").hidden = el.value !== "__novo"; return; }
+  if (el.id === "n-numero") {
+    const n = ZAP && ZAP.numeros.find(x => x.chave === el.value);
+    if (n && (n.pasta_dados || n.conta)) $("#n-separado").checked = true;  // número a mais: quase sempre é o do bot
+    return;
+  }
+  if (el.id === "n-canal") { $("#n-numero-box").hidden = el.value !== "whatsapp"; if (el.value === "whatsapp") carregarZap().then(preencherNumerosNovo); return; }
+  if (!rasc || rasc.canal !== "whatsapp" || !$("#main").contains(el)) return;
+  const w = rasc.whatsapp = rasc.whatsapp || {};
+  w.conversas = w.conversas || [];
+  if (el.dataset.zapConv) {
+    const v = el.dataset.zapConv;
+    w.conversas = w.conversas.filter(x => x !== v && !(v === "todas" && el.checked && (x === "privadas" || x === "grupos")));
+    if (el.checked) w.conversas.push(v);
+    desenharBot(); return;
+  }
+  if (el.dataset.zapGrupo) {
+    const j = el.dataset.zapGrupo.toLowerCase();
+    w.conversas = w.conversas.filter(x => x !== j);
+    if (el.checked) w.conversas.push(j);
+    barra(); return;
+  }
+  if (el.id === "zap-numero") {
+    const n = ZAP && ZAP.numeros.find(x => x.chave === el.value);
+    if (n) { w.pasta_dados = n.pasta_dados; w.conta = n.conta; if (n.wacli && !w.wacli) w.wacli = n.wacli; }
+    desenharBot(); return;
+  }
+  if (el.id === "zap-outras") {
+    const fixas = w.conversas.filter(x => x === "eu" || CURINGAS.includes(x) || x.endsWith("@g.us"));
+    const novas = el.value.split(/[,;]+/).map(x => x.trim()).filter(Boolean)
+      .map(x => x.includes("@") ? x.toLowerCase() : x.replace(/\D/g, "")).filter(x => x.includes("@") || x.length >= 8);
+    w.conversas = fixas.concat(novas);
+    barra(); return;
+  }
+});
+
+function preencherNumerosNovo() {
+  const s = $("#n-numero");
+  if (!s || !ZAP) return;
+  s.innerHTML = ZAP.numeros.map(n => `<option value="${esc(n.chave)}">${esc(nomeNum(n))}${n.pareado ? " · +" + esc(n.telefone) : " · não pareado"}</option>`).join("");
+}
+
+$("#zap").addEventListener("toggle", () => { if ($("#zap").open) carregarZap(true); });
+
 document.addEventListener("click", async ev => {
   const el = ev.target.closest("button,[data-abrir]");
   if (!el) return;
@@ -505,11 +686,25 @@ document.addEventListener("click", async ev => {
       case "arq-abrir": { const r = await api("GET", `/api/bots/${sel}/instrucoes-arquivo`); $("#arq-box").hidden = false; $("#arq-texto").value = r.texto; $("#arq-cam").textContent = r.caminho + (r.existe ? "" : " (será criado)"); return; }
       case "arq-salvar": await api("PUT", `/api/bots/${sel}/instrucoes-arquivo`, {texto: $("#arq-texto").value}); toast("Arquivo salvo. Vale a partir da próxima mensagem."); return;
       case "hist-atualizar": return carregarHistorico();
+      case "zap-grupos-atualizar": return carregarGrupos(rasc.whatsapp, true);
+      case "zp-parear": {
+        const escolha = $("#zp-numero").value;
+        let alvo;
+        if (escolha === "__novo") {
+          const nome = $("#zp-nome").value.trim().toLowerCase();
+          if (!/^[a-z0-9][a-z0-9-]{0,29}$/.test(nome)) return toast('Dê um nome curto ao número novo, como "pombo".');
+          alvo = {novo: nome};
+        } else alvo = {chave: escolha};
+        const telefone = $("#zp-tel").value.trim();
+        if (telefone.replace(/\D/g, "").length < 10) return toast("Digite o telefone com DDI e DDD, como +55 31 99999-0000.");
+        await api("POST", "/api/whatsapp/parear", {...alvo, telefone, de_novo: $("#zp-denovo").checked});
+        acompanharPareamento(alvo); return;
+      }
       case "n-criar": {
         $("#n-erro").textContent = "";
         const nome = $("#n-nome").value.trim(), id = $("#n-id").value.trim(), pasta = $("#n-pasta").value.trim(), canal = $("#n-canal").value;
         if (!nome || !pasta) { $("#n-erro").textContent = "Preencha o nome e a pasta."; return; }
-        try { const r = await api("POST", "/api/bots", {nome, id: id || undefined, pasta, canal, numero_separado: canal === "whatsapp" && $("#n-separado").checked}); $("#novo").open = false; ["#n-nome", "#n-id", "#n-pasta"].forEach(s => $(s).value = ""); await atualizar(); abrir(r.id); toast(canal === "whatsapp" ? "Bot criado. Agora, no terminal: pombo whatsapp parear" : "Bot criado. Agora cole o token do @BotFather."); }
+        try { const r = await api("POST", "/api/bots", {nome, id: id || undefined, pasta, canal, chave: canal === "whatsapp" && ZAP ? $("#n-numero").value : undefined, numero_separado: canal === "whatsapp" && $("#n-separado").checked}); $("#novo").open = false; ["#n-nome", "#n-id", "#n-pasta"].forEach(s => $(s).value = ""); await atualizar(); abrir(r.id); toast(canal === "whatsapp" ? "Bot criado. Agora, no terminal: pombo whatsapp parear" : "Bot criado. Agora cole o token do @BotFather."); }
         catch (e) { $("#n-erro").textContent = e.message; }
         return;
       }

@@ -53,12 +53,23 @@ class PontaAPonta(unittest.TestCase):
         config.salvar_bot("zap", {"nome": "Bot Zap", "canal": "whatsapp", "pasta": cls.pasta, "modelo": "haiku",
                                   "conectores_claude_ai": False,
                                   "whatsapp": {"wacli": os.path.join(RAIZ, "tests", "wacli_falso.py"),
-                                               "pasta_dados": cls.store, "intervalo_s": 1}})
+                                               "pasta_dados": cls.store, "intervalo_s": 1,
+                                               "conversas": ["eu", "todas"]}})
         # um segundo bot no mesmo WhatsApp, com um grupo só do usuário (uma pasta por grupo)
         cls.pasta2 = tempfile.mkdtemp(prefix="pombo-e2e-pasta2-")
         with open(os.path.join(cls.pasta2, "segredo.txt"), "w") as f:
             f.write("jabuticaba\n")
         cls.grupo = wacli_falso.grupo(cls.store, "🎓 Pasta 2")
+        # o número próprio do Pombo, num grupo com você
+        cls.store_bot = tempfile.mkdtemp(prefix="pombo-e2e-wacli-bot-")
+        cls.bot_jid = wacli_falso.preparar(cls.store_bot, "5531977776666", lid="11112222333344")
+        cls.grupo_bot = wacli_falso.grupo(cls.store_bot, "Turma", outros=["5531900000000"])
+        cls.wa_grupo_meu = wacli_falso.grupo(cls.store, "Turma", outros=["5531977776666"], jid=cls.grupo_bot)
+        config.salvar_bot("pombozap", {"nome": "Pombo", "canal": "whatsapp", "pasta": cls.pasta, "modelo": "haiku",
+                                       "conectores_claude_ai": False, "usuarios_permitidos": ["5531900000000"],
+                                       "whatsapp": {"wacli": os.path.join(RAIZ, "tests", "wacli_falso.py"),
+                                                    "pasta_dados": cls.store_bot, "intervalo_s": 1, "meu_numero": False,
+                                                    "conversas": ["todas"], "gatilho_sempre": False, "prefixo": ""}})
         config.salvar_bot("zap2", {"nome": "Bot Zap 2", "canal": "whatsapp", "pasta": cls.pasta2, "modelo": "haiku",
                                    "conectores_claude_ai": False,
                                    "whatsapp": {"wacli": os.path.join(RAIZ, "tests", "wacli_falso.py"),
@@ -211,8 +222,8 @@ class PontaAPonta(unittest.TestCase):
         while time.time() < fim and not (self.config.Estado("zap2").ler().get("whatsapp") or {}).get("checkpoint"):
             time.sleep(0.3)
         from pombo import whatsapp
-        self.assertEqual(len(whatsapp._syncs), 1)  # os dois bots dividem um sync só
-        self.assertEqual(next(iter(whatsapp._syncs.values())).usuarios, {"zap", "zap2"})
+        # os dois bots do mesmo número dividem um sync só (o número do Pombo tem o dele)
+        self.assertIn({"zap", "zap2"}, [s.usuarios for s in whatsapp._syncs.values()])
         self.wa.chegar(self.store, self.grupo, "Leia o arquivo segredo.txt e responda só com a palavra que está nele.")
         r = self.esperar_zap(lambda e: "jabuticaba" in e.get("text", "").lower())
         self.assertIsNotNone(r, f"o grupo não respondeu. Enviadas: {self.wa.enviadas(self.store)}")
@@ -223,6 +234,28 @@ class PontaAPonta(unittest.TestCase):
         self.assertTrue(r["text"].startswith("🎓 "))
         self.assertFalse(any("jabuticaba" in e.get("text", "").lower() and e["to"] != self.grupo
                              for e in self.wa.enviadas(self.store)), "o bot da conversa eu respondeu no grupo")
+
+    def test_9_numero_do_pombo_no_grupo(self):
+        fim = time.time() + 20
+        while time.time() < fim and not (self.config.Estado("pombozap").ler().get("whatsapp") or {}).get("checkpoint"):
+            time.sleep(0.3)
+        eu = "5531900000000@s.whatsapp.net"
+        # no grupo com o Pombo, o seu número sai da frente mesmo com "pombo, ..."
+        self.wa.chegar(self.store, self.wa_grupo_meu, "pombo, isso aqui é com o outro número")
+        pedido = self.wa.chegar(self.store_bot, self.grupo_bot,
+                                "@5531977776666 leia o arquivo segredo.txt e responda só com a palavra que está nele.",
+                                de_mim=False, remetente=eu, nome="Fulano")
+        r = None
+        fim = time.time() + 180
+        while time.time() < fim and not r:
+            r = next((e for e in self.wa.enviadas(self.store_bot) if "abacaxi" in e.get("text", "").lower()), None)
+            time.sleep(0.5)
+        self.assertIsNotNone(r, f"o número do Pombo não respondeu. Enviadas: {self.wa.enviadas(self.store_bot)}")
+        self.assertEqual((r["to"], r["reply-to"]), (self.grupo_bot, pedido))
+        self.assertFalse(r["text"].startswith("🐦"))
+        time.sleep(3)
+        self.assertFalse([e for e in self.wa.enviadas(self.store) if e.get("to") == self.wa_grupo_meu],
+                         "o bot do seu número respondeu num grupo onde o Pombo está")
 
     def test_5_comandos(self):
         self.tg.mandar(42, "/rotinas")

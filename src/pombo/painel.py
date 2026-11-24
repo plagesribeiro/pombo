@@ -75,9 +75,10 @@ def _handler(servico, porta):
         def _tratar(self, metodo):
             if not self._host_ok():
                 return self._resp(403, {"erro": "host não permitido. Use http://127.0.0.1:%d" % porta})
-            if metodo != "GET" and self.headers.get("X-Pombo") != "1":
-                return self._resp(403, {"erro": "pedido sem o cabeçalho do painel"})
             url = urllib.parse.urlparse(self.path)
+            # mudanças, e tudo do WhatsApp (que roda o wacli), só com o cabeçalho que a página manda
+            if (metodo != "GET" or url.path.startswith("/api/whatsapp")) and self.headers.get("X-Pombo") != "1":
+                return self._resp(403, {"erro": "pedido sem o cabeçalho do painel"})
             q = dict(urllib.parse.parse_qsl(url.query))
             try:
                 if metodo == "GET" and url.path in ("/", "/index.html"):
@@ -123,6 +124,8 @@ def rota(servico, metodo, caminho, q, corpo):
     if p == ["geral"] and metodo == "PUT":
         g = {**config.carregar_geral(), **{k: v for k, v in corpo.items() if k in config.GERAL_PADRAO}}
         return config.salvar_geral(g)
+    if p[:1] == ["whatsapp"]:
+        return rota_whatsapp(metodo, p[1:], q, corpo)
     if p == ["bots"] and metodo == "POST":
         return criar_bot(corpo)
     if len(p) >= 2 and p[0] == "bots":
@@ -228,13 +231,88 @@ def criar_bot(corpo):
     if not cfg["usuarios_permitidos"]:
         cfg["usuarios_permitidos"] = config.usuarios_iniciais(cfg["canal"])
     if cfg["canal"] == "whatsapp":
-        from .whatsapp import achar_wacli
+        from .whatsapp import NOME_NUMERO, achar_wacli, pasta_numero
+        from .whatsapp import meu_telefone
         wa = dict(config.WHATSAPP_PADRAO, wacli=achar_wacli())
+        numero = (corpo.get("numero") or "").strip()
+        if corpo.get("chave") is not None:
+            n = numero_pela_chave(corpo.get("chave"))
+            wa.update({"pasta_dados": n["pasta_dados"], "conta": n["conta"], "wacli": n["wacli"] or wa["wacli"]})
+        elif numero:
+            if not NOME_NUMERO.match(numero):
+                raise Erro(400, 'o nome do número é uma palavra curta, como "pombo"')
+            wa["pasta_dados"] = pasta_numero(numero)
         if corpo.get("numero_separado"):
-            wa.update({"meu_numero": False, "conversas": ["privadas"], "gatilho_sempre": False})
+            wa.update({"meu_numero": False, "conversas": ["todas"], "gatilho_sempre": False, "prefixo": ""})
+            if not corpo.get("usuarios_permitidos") and meu_telefone():
+                cfg["usuarios_permitidos"] = [meu_telefone()]  # quem chama o bot: você
         cfg["whatsapp"] = wa
     config.salvar_bot(bot_id, cfg)
     return {"id": bot_id}
+
+
+def rota_whatsapp(metodo, p, q, corpo):
+    """Números do WhatsApp deste computador, os grupos de cada um e o pareamento pelo código de telefone."""
+    from . import whatsapp
+    if p == [] and metodo == "GET":
+        return {"numeros": whatsapp.numeros_locais(), "casa": os.path.expanduser("~")}
+    if p == ["grupos"] and metodo == "GET":
+        # o número vem pela chave e é procurado aqui: nada da URL (caminho de programa, pasta) vai para o wacli
+        n = numero_pela_chave(q.get("chave"))
+        try:
+            grupos = whatsapp.Wacli(n).grupos()
+        except whatsapp.ErroWhatsApp as e:
+            raise Erro(400, f"não consegui listar os grupos: {e}")
+        donos = {}
+        for b in config.listar_ids():
+            try:
+                c = config.carregar_bot(b)
+            except config.ErroConfig:
+                continue
+            if c.get("canal") == "whatsapp":
+                for conv in (c.get("whatsapp") or {}).get("conversas") or []:
+                    if str(conv).endswith("@g.us"):
+                        donos[str(conv).lower()] = b
+        lista = [{"jid": g.get("JID"), "nome": g.get("Name") or "(sem nome)", "bot": donos.get(str(g.get("JID")).lower())}
+                 for g in grupos if isinstance(g, dict) and g.get("JID")]
+        return {"grupos": sorted(lista, key=lambda g: g["nome"].lower())}
+    if p == ["parear"]:
+        dados = corpo if metodo == "POST" else q
+        novo = (dados.get("novo") or "").strip()
+        if novo:  # um número novo: fica em ~/.wacli-NOME
+            if not whatsapp.NOME_NUMERO.match(novo):
+                raise Erro(400, 'o nome do número é uma palavra curta, como "pombo" (letras minúsculas, números e hífen)')
+            wa = {"pasta_dados": whatsapp.pasta_numero(novo), "conta": "", "wacli": whatsapp.achar_wacli()}
+        else:
+            n = numero_pela_chave(dados.get("chave"))
+            wa = {"pasta_dados": n["pasta_dados"], "conta": n["conta"], "wacli": n["wacli"] or whatsapp.achar_wacli()}
+        if metodo == "GET":
+            atual = whatsapp.pareamento(wa)
+            return atual.resumo() if atual else {"estado": "nenhum"}
+        if metodo == "POST":
+            telefone = re.sub(r"[^\d+]", "", str(corpo.get("telefone") or ""))
+            if len(re.sub(r"\D", "", telefone)) < 10:
+                raise Erro(400, "digite o telefone com DDI e DDD, como +55 31 99999-0000")
+            if not wa["wacli"]:
+                raise Erro(400, "não achei o wacli neste computador: brew install openclaw/tap/wacli")
+            atual = whatsapp.identidade_em_cache(wa, segundos=0)
+            if atual and not (whatsapp.variantes(atual["telefone"]) & whatsapp.variantes(telefone)):
+                raise Erro(409, f"esse lugar já tem o +{atual['telefone']} pareado. Para outro telefone, escolha "
+                                "\"número novo…\" (senão ele desfaria o pareamento do +" + atual["telefone"] + ")")
+            if atual and not corpo.get("de_novo"):
+                raise Erro(409, f"o +{atual['telefone']} já está pareado aqui. Para parear de novo, marque "
+                                "\"Desfazer o pareamento atual antes\"")
+            return whatsapp.parear(wa, telefone, de_novo=bool(corpo.get("de_novo"))).resumo()
+    raise Erro(404, "não encontrado")
+
+
+def numero_pela_chave(chave):
+    """Um dos números deste computador (numeros_locais), pela chave que o painel recebeu de /api/whatsapp."""
+    from . import whatsapp
+    for n in whatsapp.numeros_locais_rapido(segundos=5):
+        if n["chave"] == chave:
+            return n
+    raise Erro(404, "não conheço esse número do WhatsApp (atualize a página)")
 
 
 def liberar(bot_id, usuario, remover=False):

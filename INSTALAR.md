@@ -144,7 +144,8 @@ ou um número só do bot.
 2. Crie o bot (o caminho do `wacli` fica guardado, porque o serviço roda sem o PATH do terminal):
    ```bash
    pombo bots criar zap --pasta ~/pessoal --canal whatsapp                     # no número dela
-   pombo bots criar zap --pasta ~/pessoal --canal whatsapp --numero-separado   # num número só do bot
+   pombo bots criar zap --pasta ~/pessoal --canal whatsapp --numero pombo --numero-separado --usuario +55DDDNUMERO
+   # num número só do bot: antes, pareie com pombo whatsapp parear --numero pombo (ou pelo painel)
    ```
 3. **A pessoa pareia, no terminal** (você não consegue fazer isso por ela): `pombo whatsapp parear` (pede só 3 dias
    de histórico: o Pombo não precisa de mais, e o histórico inteiro pesa no celular por horas). Ela lê o QR em

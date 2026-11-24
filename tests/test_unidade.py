@@ -9,6 +9,7 @@ import unittest
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(RAIZ, "src"), RAIZ]
 os.environ["POMBO_DIR"] = tempfile.mkdtemp(prefix="pombo-unidade-")
+os.environ["HOME"] = tempfile.mkdtemp(prefix="pombo-casa-")  # nada de ler o ~/.wacli de verdade de quem roda os testes
 
 from pombo import config, motores, rotinas  # noqa: E402
 from pombo.telegram import para_html, pedacos  # noqa: E402
@@ -563,10 +564,10 @@ class CanalWhatsApp(unittest.TestCase):
     def test_conversa_eu_pelo_lid(self):
         from unittest import mock
         self.montar()
-        with mock.patch.object(self.c.wa, "_rodar", return_value={"id": "BOTX", "to": "62444596658353@lid", "sent": True}):
+        with mock.patch.object(self.c.wa, "_rodar", return_value={"id": "BOTX", "to": "55556666777788@lid", "sent": True}):
             self.c.responder(self.eu, "oi")
-        self.assertTrue(self.c.eh_eu("62444596658353@lid"))
-        self.assertEqual(self.c.conversa_liberada("62444596658353@lid"), "eu")
+        self.assertTrue(self.c.eh_eu("55556666777788@lid"))
+        self.assertEqual(self.c.conversa_liberada("55556666777788@lid"), "eu")
 
     def test_banco_ocupado_tenta_de_novo(self):
         from unittest import mock
@@ -631,8 +632,8 @@ class VariosBotsNoMesmoWhatsApp(unittest.TestCase):
             self.bot("mestrado-zap")  # também quer a conversa "eu"
         self.assertIn("pombo whatsapp grupo criar", str(e.exception))
         self.bot("mestrado-zap", conversas=["120363000001@g.us"])
-        # outro WhatsApp (outra conta do wacli) pode usar a conversa "eu" dele
-        self.bot("trabalho-zap", conta="trabalho")
+        # outro WhatsApp (outro número, noutra pasta do wacli) pode usar a conversa "eu" dele
+        self.bot("trabalho-zap", pasta_dados=tempfile.mkdtemp(prefix="outro-numero-"))
         # pausado não conta
         cfg = config.carregar_bot("pessoal-zap")
         cfg["ativo"] = False
@@ -815,3 +816,202 @@ class PastaPadrao(unittest.TestCase):
             config.salvar_bot("outro", {"canal": "whatsapp", "pasta": self.store,
                                         "whatsapp": {"wacli": "x", "pasta_dados": self.store, "conversas": ["grupos"]}})
         self.assertIn("pasta padrão", str(e.exception))
+
+
+class NumeroDoBot(unittest.TestCase):
+    """O número próprio do Pombo: entra nos grupos, responde quando marcado e o seu número sai da frente."""
+
+    def setUp(self):
+        from pombo import execucao, whatsapp
+        from tests import wacli_falso
+        self.w, self.f = whatsapp, wacli_falso
+        whatsapp._numeros_cache = (0.0, [])
+        whatsapp._identidades.clear()
+        for b in config.listar_ids():
+            config.remover_bot(b)
+        script = os.path.join(RAIZ, "tests", "wacli_falso.py")
+        # o seu número (sem o 9, como os números antigos ficaram no WhatsApp) e o número do bot
+        self.meu = tempfile.mkdtemp(prefix="wacli-meu-")
+        self.eu = wacli_falso.preparar(self.meu, "553188887777", lid="55556666777788")
+        self.dobot = tempfile.mkdtemp(prefix="wacli-bot-")
+        self.bot_jid = wacli_falso.preparar(self.dobot, "5531977776666", lid="11112222333344")
+        self.grupo = wacli_falso.grupo(self.meu, "Mestrado", outros=["5531977776666"])
+        wacli_falso.grupo(self.dobot, "Mestrado", outros=["553188887777"], jid=self.grupo)  # o mesmo grupo
+        self.familia = wacli_falso.grupo(self.meu, "Família", outros=["5531911112222"])
+        self.wa_meu = {"wacli": script, "pasta_dados": self.meu}
+        self.wa_bot = {"wacli": script, "pasta_dados": self.dobot}
+        cfg_meu = config.salvar_bot("zap", {"canal": "whatsapp", "pasta": self.meu,
+                                            "whatsapp": dict(self.wa_meu, conversas=["eu", "todas"])})
+        cfg_bot = config.salvar_bot("pombo-zap", {"canal": "whatsapp", "pasta": self.dobot,
+                                                  "usuarios_permitidos": ["+55 31 98888-7777"],
+                                                  "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=["todas"],
+                                                                   gatilho_sempre=False, prefixo="")})
+        self.meu_r = execucao.BotRunner("zap", cfg_meu, config.carregar_geral(), "")
+        self.bot_r = execucao.BotRunner("pombo-zap", cfg_bot, config.carregar_geral(), "")
+        self.recebidas = {"zap": [], "pombo-zap": []}
+        for r in (self.meu_r, self.bot_r):
+            r.chegou = self.recebidas[r.id].append
+            self.assertTrue(r.canal.conhecer_numero())
+        self.desde = __import__("time").time() - 5
+
+    def chegar(self, r, store, chat, texto="", **kw):
+        mid = self.f.chegar(store, chat, texto, **kw)
+        n = len(self.recebidas[r.id])
+        r.canal.examinar(chat, mid, self.desde)
+        return self.recebidas[r.id][-1] if len(self.recebidas[r.id]) > n else None
+
+    def test_identidade_com_lid(self):
+        self.assertEqual((self.bot_r.canal.meu_numero, self.bot_r.canal.meu_lid), ("5531977776666", "11112222333344"))
+        numeros = {n["telefone"]: n for n in self.w.numeros_locais()}
+        self.assertEqual(numeros["553188887777"]["lid"], "55556666777788")
+        self.assertEqual([b["id"] for b in numeros["5531977776666"]["bots"]], ["pombo-zap"])
+
+    def test_variantes_e_mencao(self):
+        self.assertEqual(self.w.variantes("5531988887777"), {"5531988887777", "553188887777"})
+        self.assertEqual(self.w.variantes("553188887777"), {"5531988887777", "553188887777"})
+        self.assertEqual(self.w.tirar_mencao("@5531977776666 qual o prazo?", {"5531977776666"}), (True, "qual o prazo?"))
+        self.assertEqual(self.w.tirar_mencao("oi @11112222333344, tudo?", {"11112222333344"}), (True, "oi tudo?"))
+        self.assertEqual(self.w.tirar_mencao("fala com @5531900000000", {"5531977776666"}), (False, "fala com @5531900000000"))
+
+    def test_no_grupo_marcando_o_pombo(self):
+        dono = "553188887777@s.whatsapp.net"  # chega sem o 9, e o liberado foi escrito com o 9
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 qual o prazo da ICEIS?", de_mim=False,
+                        remetente=dono, nome="Ana")
+        self.assertEqual((m["texto"], m["de"]), ("qual o prazo da ICEIS?", "5531988887777"))
+        self.assertTrue(self.chegar(self.bot_r, self.dobot, self.grupo, "pombo, e agora?", de_mim=False, remetente=dono))
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, "conversa normal", de_mim=False, remetente=dono))
+        # marcado pelo LID, vindo do seu LID (o WhatsApp esconde o número em grupos novos)
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@11112222333344 oi", de_mim=False,
+                        remetente="55556666777788@lid")
+        self.assertEqual((m["texto"], m["de"]), ("oi", "5531988887777"))
+        self.assertTrue(self.bot_r.canal.eh_dono(m["de"]))
+        # outra pessoa marcando o Pombo: nada
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 me ajuda", de_mim=False,
+                                      remetente="5531955556666@s.whatsapp.net"))
+        # conversa direta com o número do bot: tudo, sem marcar; e as rotinas vão para lá (com o JID sem o 9)
+        self.assertEqual(self.chegar(self.bot_r, self.dobot, dono, "oi", de_mim=False)["texto"], "oi")
+        self.assertEqual(self.bot_r.canal.chat_do_dono(), dono)
+
+    def test_seu_numero_sai_da_frente(self):
+        c = self.meu_r.canal
+        self.assertEqual(c.liberacao(self.grupo), (None, False))  # o número do Pombo está no grupo: é dele
+        self.assertIsNone(self.chegar(self.meu_r, self.meu, self.grupo, "pombo, oi"))
+        self.assertEqual(c.liberacao(self.bot_jid), (None, False))  # a conversa direta com o Pombo também
+        self.assertEqual(c.liberacao(self.familia), ("grupo", True))  # onde o Pombo não está, continua como antes
+        self.assertEqual(self.chegar(self.meu_r, self.meu, self.familia, "pombo, oi")["texto"], "oi")
+        self.assertEqual(c.liberacao(self.eu), ("eu", False))
+
+    def test_grupo_ligado_a_bot_de_outro_numero(self):
+        outro = self.f.grupo(self.meu, "Obra")  # o Pombo ainda não aparece nos participantes
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["whatsapp"]["conversas"] = ["todas", outro]
+        config.salvar_bot("pombo-zap", cfg)
+        self.meu_r.canal._reivindicadas = (0.0, set())
+        self.assertEqual(self.meu_r.canal.liberacao(outro), (None, False))
+        with self.assertRaises(config.ErroConfig) as e:  # o mesmo grupo em dois bots, mesmo em números diferentes
+            config.salvar_bot("obra-meu", {"canal": "whatsapp", "pasta": self.meu,
+                                           "whatsapp": dict(self.wa_meu, conversas=[outro])})
+        self.assertIn("outro número", str(e.exception))
+
+    def test_parear_pelo_painel(self):
+        import time
+        from pombo import painel
+        script = os.path.join(RAIZ, "tests", "wacli_falso.py")
+        novo = tempfile.mkdtemp(prefix="wacli-novo-")
+        os.rmdir(novo)
+        wa = {"wacli": script, "pasta_dados": novo}
+        self.assertFalse(self.w.Wacli(wa).status().get("authenticated"))
+        p = self.w.parear(wa, "+55 31 96666-5555")
+        fim, vistos = time.time() + 20, set()
+        while time.time() < fim and p.estado not in ("pareado", "erro"):
+            vistos.add((p.estado, p.codigo))
+            time.sleep(0.05)
+        self.assertEqual(p.estado, "pareado", p.mensagem)
+        self.assertIn(("codigo", "ABCD-EFGH"), vistos)
+        self.assertEqual(self.w.Wacli(wa).identidade()["telefone"], "5531966665555")
+        # a API do painel: os números (com a chave) e os grupos de um número, pela chave
+        self.w.esquecer_caches()
+        r = painel.rota(None, "GET", "/api/whatsapp", {}, {})
+        do_bot = next(n for n in r["numeros"] if n["telefone"] == "5531977776666")
+        g = painel.rota(None, "GET", "/api/whatsapp/grupos", {"chave": do_bot["chave"]}, {})
+        self.assertEqual([x["nome"] for x in g["grupos"]], ["Mestrado"])
+
+    def test_painel_nao_roda_programa_da_url(self):
+        from pombo import painel
+        marca = os.path.join(tempfile.mkdtemp(), "rodou")
+        programa = os.path.join(tempfile.mkdtemp(), "x.sh")
+        with open(programa, "w") as f:
+            f.write(f"#!/bin/sh\ntouch {marca}\n")
+        os.chmod(programa, 0o755)
+        with self.assertRaises(painel.Erro):  # sem chave conhecida, nada roda
+            painel.rota(None, "GET", "/api/whatsapp/grupos", {"wacli": programa, "pasta_dados": "/etc"}, {})
+        self.assertFalse(os.path.exists(marca))
+        with self.assertRaises(painel.Erro):
+            painel.rota(None, "POST", "/api/whatsapp/parear", {}, {"novo": "Nome Ruim", "telefone": "+5531999990000"})
+
+    def test_painel_nao_pareia_o_chip_por_cima_do_seu_numero(self):
+        from pombo import painel
+        self.w.esquecer_caches()
+        meu = next(n for n in painel.rota(None, "GET", "/api/whatsapp", {}, {})["numeros"] if n["telefone"] == "553188887777")
+        with self.assertRaises(painel.Erro) as e:
+            painel.rota(None, "POST", "/api/whatsapp/parear", {}, {"chave": meu["chave"], "telefone": "+5531966665555",
+                                                                   "de_novo": True})
+        self.assertIn("número novo", str(e.exception))
+        with self.assertRaises(painel.Erro) as e:  # o mesmo telefone, sem marcar "desfazer"
+            painel.rota(None, "POST", "/api/whatsapp/parear", {}, {"chave": meu["chave"], "telefone": "+5531988887777"})
+        self.assertIn("Desfazer", str(e.exception))
+
+    def test_bots_pausados_voltam_se_o_pareamento_morrer(self):
+        self.w.pausar_para(self.wa_bot)
+        self.assertFalse(config.carregar_bot("pombo-zap")["ativo"])
+        arq = self.w._arq_pausa(self.wa_bot)
+        d = config.ler_json(arq, {})
+        d["pid"] = 999999  # o processo que pausou morreu
+        config.gravar_json(arq, d)
+        self.w.restaurar_pausas()
+        self.assertTrue(config.carregar_bot("pombo-zap")["ativo"])
+        self.assertFalse(os.path.exists(arq))
+        # pausa feita à mão durante o pareamento fica
+        self.w.pausar_para(self.wa_bot)
+        import time
+        time.sleep(0.02)
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["instrucoes"] = "mexi aqui"
+        config.gravar_json(config.arq_bot("pombo-zap"), cfg)
+        self.w.religar_de(self.wa_bot)
+        self.assertFalse(config.carregar_bot("pombo-zap")["ativo"])
+
+    def test_sai_da_frente_so_onde_o_pombo_atende(self):
+        # o bot do número do Pombo escuta só o Mestrado; ele também está no grupo Família, mas não atende lá
+        familia_bot = self.f.grupo(self.dobot, "Família", outros=["553188887777"], jid=self.familia)
+        self.assertTrue(familia_bot)
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["whatsapp"]["conversas"] = [self.grupo]
+        config.salvar_bot("pombo-zap", cfg)
+        self.w.esquecer_caches()
+        self.meu_r.canal._outros = (0.0, [])
+        self.assertEqual(self.meu_r.canal.liberacao(self.familia), ("grupo", True))  # o seu número responde
+        self.assertEqual(self.meu_r.canal.liberacao(self.grupo), (None, False))  # no Mestrado, o Pombo
+        # sem você liberado no bot do Pombo, ele não te atende: o seu número continua no Mestrado também
+        cfg["usuarios_permitidos"] = ["5531911112222"]
+        config.salvar_bot("pombo-zap", cfg)
+        self.meu_r.canal._outros, self.meu_r.canal._reivindicadas = (0.0, []), (0.0, set())
+        self.assertEqual(self.meu_r.canal.liberacao(self.grupo), ("grupo", True))
+
+    def test_pombo_ganha_de_grupo_ligado_no_seu_numero(self):
+        config.salvar_bot("mestrado-meu", {"canal": "whatsapp", "pasta": self.meu,
+                                           "whatsapp": dict(self.wa_meu, conversas=[self.grupo])})
+        self.bot_r.canal._reivindicadas = (0.0, set())
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 oi", de_mim=False,
+                        remetente="553188887777@s.whatsapp.net")
+        self.assertEqual(m["texto"], "oi")  # o Pombo atende (antes ficava sem resposta)
+        from pombo import execucao
+        r = execucao.BotRunner("mestrado-meu", config.carregar_bot("mestrado-meu"), config.carregar_geral(), "")
+        r.canal.conhecer_numero()
+        self.assertEqual(r.canal.liberacao(self.grupo), (None, False))  # e o bot do seu número sai da frente
+
+    def test_lid_casa_com_lid_e_telefone_com_telefone(self):
+        c = self.bot_r.canal
+        self.assertEqual(c.liberado("55556666777788@lid"), "5531988887777")  # o seu LID, de um número pareado aqui
+        self.assertEqual(c.liberado("553188887777@s.whatsapp.net"), "5531988887777")
+        self.assertIsNone(c.liberado("5531988887777@lid"))  # um LID com os dígitos do seu telefone não é você

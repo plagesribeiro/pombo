@@ -9,17 +9,27 @@ import datetime as dt
 import fcntl
 import json
 import os
+import sqlite3
 import sys
 import time
+import zlib
 
 ARQ = "falso.json"
 
 
 # ---------------------------------------------------------------- para os testes
 
-def preparar(store, eu="5531900000000"):
+def preparar(store, eu="5531900000000", lid=None):
+    """Um número pareado. O LID (identificador que o WhatsApp usa em grupos) vai no session.db, como no de verdade."""
     os.makedirs(store, exist_ok=True)
     _salvar(store, {"eu": eu, "mensagens": [], "diario": [], "enviadas": [], "reacoes": [], "seq": 0, "grupos": {}})
+    lid = lid or ("9" + eu)[-14:]
+    con = sqlite3.connect(os.path.join(store, "session.db"))
+    con.execute("CREATE TABLE IF NOT EXISTS whatsmeow_device (jid TEXT, lid TEXT)")
+    con.execute("DELETE FROM whatsmeow_device")
+    con.execute("INSERT INTO whatsmeow_device VALUES (?, ?)", (f"{eu}:12@s.whatsapp.net", f"{lid}:12@lid"))
+    con.commit()
+    con.close()
     return f"{eu}@s.whatsapp.net"
 
 
@@ -42,16 +52,22 @@ def _chegar(store, chat, texto, de_mim, remetente, nome, midia, citada, idade_s,
     return mid
 
 
-def grupo(store, nome, outros=()):
-    """Cria um grupo com você (e os números em `outros`). Devolve o JID."""
+def _jid_grupo(store, seq):
+    """Como no WhatsApp: o JID de um grupo é único (e é o mesmo para todos os números que estão nele)."""
+    return f"1203{zlib.crc32(store.encode()) % 10**8:08d}{seq:04d}@g.us"
+
+
+def grupo(store, nome, outros=(), jid=None):
+    """Cria um grupo com você (e os números em `outros`). Devolve o JID. Passe `jid` para pôr outro número no mesmo
+    grupo."""
     with _trava(store):
-        return _grupo(store, nome, outros)
+        return _grupo(store, nome, outros, jid)
 
 
-def _grupo(store, nome, outros):
+def _grupo(store, nome, outros, jid=None):
     d = _carregar(store)
     d["seq"] += 1
-    jid = f"120363{d['seq']:06d}@g.us"
+    jid = jid or _jid_grupo(store, d["seq"])
     d.setdefault("grupos", {})[jid] = {"nome": nome, "participantes": [d["eu"]] + list(outros)}
     _salvar(store, d)
     return jid
@@ -172,6 +188,27 @@ def _main(op, pos, store):
         sys.stderr.flush()
         while True:
             time.sleep(3600)
+    if cmd == ["doctor"]:
+        _saida({"lock_held": False, "authenticated": d is not None, "store_dir": store,
+                "connection_state": "disconnected"})
+    if cmd == ["auth", "logout"]:
+        if d is None:
+            _saida(erro="not authenticated; run `wacli auth`")
+        for nome in (ARQ, "session.db"):
+            try:
+                os.remove(os.path.join(store, nome))
+            except OSError:
+                pass
+        _saida({"logged_out": True})
+    if cmd[:1] == ["auth"] and op.get("phone") and d is None:
+        # o pareamento por código: mostra o código e, como se a pessoa tivesse digitado, pareia
+        sys.stderr.write(json.dumps({"event": "pair_code", "data": {"code": "ABCD-EFGH", "phone": op["phone"]}}) + "\n")
+        sys.stderr.flush()
+        time.sleep(float(os.environ.get("WACLI_FALSO_DEMORA", "0.3")))
+        numero_ = "".join(ch for ch in op["phone"] if ch.isdigit())
+        preparar(store, numero_)
+        sys.stderr.write(json.dumps({"event": "history_sync", "data": {"conversations": 3}}) + "\n")
+        _saida({"authenticated": True, "messages_stored": 0})
     if d is None:
         _saida({"authenticated": False} if cmd == ["auth", "status"] else None,
                None if cmd == ["auth", "status"] else "not authenticated; run `wacli auth`")
@@ -238,12 +275,10 @@ def _main(op, pos, store):
         _saida([{"JID": j, "Name": g["nome"]} for j, g in d.get("grupos", {}).items() if busca in g["nome"].lower()])
     if cmd == ["groups", "create"]:
         d["seq"] += 1
-        jid = f"120363{d['seq']:06d}@g.us"
+        jid = _jid_grupo(store, d["seq"])
         d.setdefault("grupos", {})[jid] = {"nome": op.get("name"), "participantes": [d["eu"]]}
         _salvar(store, d)
         _saida({"JID": jid, "GroupName": {"Name": op.get("name")}, "Participants": [{"JID": eu}]})
-    if cmd == ["doctor"]:
-        _saida({"lock_held": False, "authenticated": True, "connection_state": "disconnected"})
     if cmd == ["media", "download"]:
         pasta = op.get("output") or store
         os.makedirs(pasta, exist_ok=True)

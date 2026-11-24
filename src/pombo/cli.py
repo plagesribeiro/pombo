@@ -37,9 +37,10 @@ Uso comum:
   pombo rotinas rodar ID ROTINA     roda agora (o resultado vai para o Telegram)
   pombo rotinas remover ID ROTINA
 
-  pombo whatsapp parear [--telefone +55...] [--historico 3] [--de-novo]
+  pombo whatsapp parear [--numero pombo] [--telefone +55...] [--historico 3] [--de-novo]
                                     conecta o WhatsApp neste computador (QR ou código), com pouco histórico
-  pombo whatsapp status             se o WhatsApp está pareado e qual número
+  pombo whatsapp status             os WhatsApps deste computador (pareados ou não) e os bots de cada um
+  pombo whatsapp grupos --numero N  os grupos daquele número (para ligar um grupo a um bot)
   pombo whatsapp grupo criar --bot ID [--nome N]     cria um grupo só seu e liga ao bot (sem gatilho)
   pombo whatsapp grupo ligar --bot ID --nome N|JID   liga ao bot um grupo que já existe
 
@@ -148,6 +149,11 @@ def cmd_bots(a):
                     "permissoes": a.permissoes or "total"})
         if canal == "whatsapp":
             cfg["whatsapp"] = whatsapp_inicial(a)
+            if a.numero_separado and not a.usuario:
+                from .whatsapp import meu_telefone
+                if meu_telefone():
+                    cfg["usuarios_permitidos"] = [meu_telefone()]  # quem chama o bot: você
+                    print(f"Liberado para chamar o bot: +{meu_telefone()} (o seu número). Outros: pombo bots liberar")
             if a.grupo:
                 cfg["whatsapp"]["conversas"] = [criar_grupo(cfg["whatsapp"], a.grupo)]
         cfg = config.salvar_bot(a.id, cfg)
@@ -294,11 +300,17 @@ def cmd_testar(a):
 
 def whatsapp_inicial(a):
     """Bot novo do WhatsApp. No seu número: só a conversa com você mesmo e o gatilho "pombo".
-    Num número só do bot: as conversas privadas de quem estiver liberado, sem precisar de gatilho."""
+    Num número só do bot: todas as conversas de quem estiver liberado; na conversa direta sem gatilho, nos grupos
+    marcando @ o bot (ou com o gatilho)."""
+    from .whatsapp import NOME_NUMERO, pasta_numero
     wa = dict(config.WHATSAPP_PADRAO)
     if a.numero_separado:
-        wa.update({"meu_numero": False, "conversas": ["privadas"], "gatilho_sempre": False})
-    if a.conta:
+        wa.update({"meu_numero": False, "conversas": ["todas"], "gatilho_sempre": False, "prefixo": ""})
+    if getattr(a, "numero", None):
+        if not NOME_NUMERO.match(a.numero):
+            sair('o nome do número é uma palavra curta, como "pombo" (letras minúsculas, números e hífen)')
+        wa["pasta_dados"] = pasta_numero(a.numero)
+    elif a.conta:
         wa["conta"] = a.conta
     from .whatsapp import achar_wacli
     wa["wacli"] = achar_wacli()  # o serviço roda sem o PATH do terminal: guarda o caminho de agora
@@ -306,49 +318,27 @@ def whatsapp_inicial(a):
 
 
 def bots_do_mesmo_whatsapp(wa):
-    chave = config.chave_whatsapp({"whatsapp": wa})
-    ids = []
-    for b in config.listar_ids():
-        try:
-            c = config.carregar_bot(b)
-        except config.ErroConfig:
-            continue
-        if c.get("canal") == "whatsapp" and c.get("ativo") and config.chave_whatsapp(c) == chave:
-            ids.append(b)
-    return ids
+    from .whatsapp import bots_do_numero
+    return bots_do_numero(wa)
 
 
 @contextlib.contextmanager
 def bots_pausados(wa):
     """Para o que precisa do banco do wacli só para si (criar grupo, parear): pausa os bots deste WhatsApp (o sync
     deles para), espera o banco ficar livre e, no fim, religa."""
-    import time
-    from .whatsapp import ErroWhatsApp, Wacli
+    from .whatsapp import ErroWhatsApp, Wacli, esperar_banco_livre, pausar_para, religar_de
     w = Wacli(wa)
-    pausados = bots_do_mesmo_whatsapp(wa)
-    for b in pausados:
-        c = config.carregar_bot(b)
-        c["ativo"] = False
-        config.gravar_json(config.arq_bot(b), config.validar_bot(c))
+    pausados = pausar_para(wa)  # anotados: se este comando morrer no meio, o serviço religa ao subir
     try:
         if pausados:
             print(f"Pausando enquanto isso: {', '.join(pausados)}…")
-        fim = time.time() + 60
-        while True:
-            try:
-                if w.banco_livre():
-                    break
-            except ErroWhatsApp as e:
-                sair(f"Erro: {e}")
-            if time.time() > fim:
-                sair("O wacli continua ocupado (outro `wacli sync` rodando fora do Pombo?). Pare ele e tente de novo.")
-            time.sleep(1)
+        try:
+            esperar_banco_livre(w)
+        except ErroWhatsApp as e:
+            sair(f"Erro: {e}. Pare o outro wacli e tente de novo.")
         yield w
     finally:
-        for b in pausados:
-            c = config.carregar_bot(b)
-            c["ativo"] = True
-            config.gravar_json(config.arq_bot(b), config.validar_bot(c))
+        religar_de(wa)
 
 
 def criar_grupo(wa, nome):
@@ -372,7 +362,8 @@ def explicar_whatsapp(bot_id, cfg):
     if not wa["wacli"]:
         print("Falta instalar o wacli: brew install openclaw/tap/wacli  (ou github.com/openclaw/wacli)\n"
               f"Depois guarde o caminho: pombo bots editar {bot_id} whatsapp.wacli=$(which wacli)")
-    print("Próximo passo: pombo whatsapp parear" + (f" --conta {wa['conta']}" if wa["conta"] else "") +
+    onde = f" --bot {bot_id}" if (wa["pasta_dados"] or wa["conta"]) else ""
+    print("Próximo passo (se o número ainda não estiver pareado): pombo whatsapp parear" + onde +
           "   (lê o QR no celular: WhatsApp > Aparelhos conectados)")
     if wa["meu_numero"] and "eu" in wa["conversas"]:
         print(f'Depois, na conversa com você mesmo no WhatsApp, mande: {wa["gatilho"]}, oi')
@@ -383,8 +374,13 @@ def explicar_whatsapp(bot_id, cfg):
 
 def cmd_whatsapp(a):
     import subprocess
-    from .whatsapp import ErroWhatsApp, Wacli, achar_wacli
+    from .whatsapp import NOME_NUMERO, ErroWhatsApp, Wacli, achar_wacli, numeros_locais, pasta_numero
     wa = {"wacli": a.wacli or "", "conta": a.conta or "", "pasta_dados": ""}
+    a.numero = getattr(a, "numero", None)
+    if a.numero:
+        if not NOME_NUMERO.match(a.numero):
+            sair('o nome do número é uma palavra curta, como "pombo" (letras minúsculas, números e hífen)')
+        wa.update({"conta": "", "pasta_dados": pasta_numero(a.numero)})
     if a.bot:
         cfg = config.validar_bot(config.carregar_bot(a.bot))
         if cfg["canal"] != "whatsapp":
@@ -396,14 +392,32 @@ def cmd_whatsapp(a):
     if a.acao == "grupo":
         return cmd_whatsapp_grupo(a, w)
     if a.acao == "status":
+        if a.bot or a.numero or a.conta:
+            try:
+                st = w.status()
+            except ErroWhatsApp as e:
+                sair(f"Erro: {e}")
+            if st.get("authenticated"):
+                print(f"Pareado: +{st.get('phone') or ''} ({st.get('linked_jid')})  ·  wacli em {w.bin}")
+            else:
+                print("Não está pareado. Rode: pombo whatsapp parear" + (f" --numero {a.numero}" if a.numero else ""))
+            return
+        for n in numeros_locais():
+            nome = n["numero"] or "padrão"
+            situacao = f"+{n['telefone']}" if n["pareado"] else "não pareado"
+            bots = ", ".join(b["id"] + ("" if b["ativo"] else " (pausado)") for b in n["bots"]) or "nenhum bot"
+            print(f"- {nome:<10} {situacao:<16} {n['pasta_dados'] or '(pasta padrão do wacli)'}  ·  {bots}")
+        return
+    if a.acao == "grupos":
         try:
-            st = w.status()
+            grupos = w.grupos()
         except ErroWhatsApp as e:
             sair(f"Erro: {e}")
-        if st.get("authenticated"):
-            print(f"Pareado: +{st.get('phone') or ''} ({st.get('linked_jid')})  ·  wacli em {w.bin}")
-        else:
-            print("Não está pareado. Rode: pombo whatsapp parear")
+        for g in grupos:
+            if isinstance(g, dict):
+                print(f"- {g.get('Name') or '(sem nome)':<30} {g.get('JID')}")
+        if not grupos:
+            print("Nenhum grupo ainda (o número precisa estar pareado e no grupo).")
         return
     cmd = w.base() + ["auth"] + comando_parear(a)
     with bots_pausados(wa):
@@ -573,6 +587,8 @@ def montar():
     s.add_argument("--numero-separado", action="store_true",
                    help="com --canal whatsapp: o WhatsApp pareado é um número só do bot (não o seu)")
     s.add_argument("--conta", help="com --canal whatsapp: conta do wacli (--account), para ter mais de um WhatsApp")
+    s.add_argument("--numero", help='com --canal whatsapp: o número a mais que ele usa (ex.: pombo, pareado com '
+                                    'pombo whatsapp parear --numero pombo)')
     s.add_argument("--grupo", help='com --canal whatsapp: cria um grupo só seu com este nome para o bot (ex.: "🎓 Mestrado")')
     s.add_argument("--usuario", action="append", help="ID do Telegram (ou número de WhatsApp) liberado (pode repetir)")
     s.add_argument("--permissoes", choices=list(config.PERMISSOES))
@@ -598,12 +614,13 @@ def montar():
     s.set_defaults(fn=cmd_rotinas)
 
     s = sub.add_parser("whatsapp", help="conectar o WhatsApp (wacli) neste computador")
-    s.add_argument("acao", choices=["parear", "status", "grupo"])
+    s.add_argument("acao", choices=["parear", "status", "grupo", "grupos"])
     s.add_argument("grupo_acao", nargs="?", choices=["criar", "ligar"], help="com grupo: criar ou ligar")
     s.add_argument("--bot", help="usa a conta do wacli deste bot")
     s.add_argument("--nome", help="com grupo: nome do grupo (ou o JID, em ligar)")
     s.add_argument("--so-o-grupo", action="store_true", help="com grupo: o bot passa a escutar só esse grupo")
     s.add_argument("--conta", help="conta do wacli (--account)")
+    s.add_argument("--numero", help='um número a mais, só do bot (ex.: pombo): fica em ~/.wacli-NOME')
     s.add_argument("--telefone", help="parear por código, sem QR (ex.: +55 31 99999-0000)")
     s.add_argument("--historico", type=int, default=3,
                    help="parear: dias de histórico que o celular manda (padrão 3; 0 = o que o celular quiser, ~3 meses)")
