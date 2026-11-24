@@ -258,6 +258,12 @@ pombo whatsapp grupo ligar --bot obra-zap --nome "Obra" --so-o-grupo  # uma past
   todos veem, e qualquer um do grupo gasta a sua assinatura. Ex.: `ferramentas_permitidas: ["Read(./**)", "WebSearch",
   "WebFetch"]` e `ferramentas_negadas: ["Bash", "Grep", "Glob", "Task", "Agent", "Write", "Edit", "Skill"]` (a regra
   `Read(./**)` não prende o `Grep` nem o `Glob` à pasta).
+- **Quem não está liberado (o último da fila):** com `conversas: ["desconhecidos"]` e `qualquer_pessoa=true`, um bot do
+  número do Pombo atende a conversa direta de quem nenhum outro bot do número atende (você e os convidados continuam
+  nos bots de vocês, inclusive num outro computador). Bom para uma versão limitada e barata (ex.: `modelo: "haiku"`,
+  sem ferramentas, respostas curtas). `whatsapp.limite_por_pessoa_dia` limita quantas mensagens de cada pessoa são
+  respondidas por dia. Se a pessoa pedir acesso, o agente escreve `SOLICITAR_ACESSO` numa linha sozinha e o Pombo te
+  avisa na sua conversa com o bot (nome, número e a mensagem; uma vez a cada 12 horas por pessoa).
 - **Conversa direta com convidados:** para outras pessoas falarem com o número do Pombo, ponha os números delas em
   `usuarios_permitidos` (depois do seu, que é o primeiro: o dono) e em `conversas` de um bot isolado como o do grupo
   aberto. Quem não é o dono é tratado como convidado: o Claude sabe que não foi você, a pessoa só usa o `/novo` (o

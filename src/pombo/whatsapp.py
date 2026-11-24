@@ -1236,6 +1236,8 @@ class CanalWhatsApp:
         for c in conversas:
             if c == chat.lower() or (c.isdigit() and tipo == "privada" and numero(chat) in variantes(c)):  # com e sem o 9
                 return tipo, False
+        if tipo == "privada" and config.DESCONHECIDOS in conversas and not self._atendido_por_outro(chat):
+            return tipo, True  # o último da fila: ninguém mais deste número atende esta pessoa
         curinga = "todas" in conversas or (tipo == "privada" and "privadas" in conversas) or \
             (tipo == "grupo" and "grupos" in conversas)
         if curinga and not self._de_outro_bot(chat):
@@ -1339,7 +1341,7 @@ class CanalWhatsApp:
                 if o["canal"] != "whatsapp" or not o["ativo"]:
                     continue
                 if config.chave_whatsapp(o) == minha:
-                    nomes |= {c for c in o["whatsapp"]["conversas"] if c not in config.CURINGAS}
+                    nomes |= {c for c in o["whatsapp"]["conversas"] if c not in config.CURINGAS and c != config.DESCONHECIDOS}
                 else:
                     # o JID de um grupo é o mesmo em qualquer número: grupo ligado a um bot de outro número é dele,
                     # menos contra o número do Pombo quando quem ligou foi um bot do seu número (o Pombo ganha), e
@@ -1353,7 +1355,7 @@ class CanalWhatsApp:
                 wa_o = o.get("whatsapp") or {}
                 conv = [str(c).lower() for c in wa_o.get("conversas") or []]
                 if self._mesmo_numero(n):
-                    nomes |= {c for c in conv if c != "eu" and c not in config.CURINGAS}
+                    nomes |= {c for c in conv if c != "eu" and c not in config.CURINGAS and c != config.DESCONHECIDOS}
                     continue
                 sou_pombo, e_pombo = not self.cfg().get("meu_numero", True), not wa_o.get("meu_numero", True)
                 if (sou_pombo and not e_pombo) or (not sou_pombo and e_pombo and not self._me_atende(o)):
@@ -1362,6 +1364,54 @@ class CanalWhatsApp:
             self._reivindicadas = (agora, nomes)
         nomes = self._reivindicadas[1]
         return chat.lower() in nomes or bool(variantes(numero(chat)) & nomes)
+
+    def _atendido_por_outro(self, chat):
+        """A pessoa desta conversa direta é atendida por outro bot deste número (aqui ou em outro computador): ele cobre
+        a conversa (pelo número ou pela pasta padrão) e tem a pessoa liberada? Então o bot dos desconhecidos sai da frente."""
+        vs = variantes(numero(chat))
+        if not vs:
+            return False
+        outros = []
+        minha = config.chave_whatsapp(self.r.cfg)
+        for b in config.listar_ids():
+            if b == self.r.id:
+                continue
+            try:
+                o = config.validar_bot(config.carregar_bot(b))
+            except config.ErroConfig:
+                continue
+            if o["canal"] == "whatsapp" and o["ativo"] and config.chave_whatsapp(o) == minha:
+                outros.append(o)
+        outros += [o for _maquina, n, o in config.bots_de_outros_computadores() if self._mesmo_numero(n)]
+        for o in outros:
+            conv = [str(c).lower() for c in (o.get("whatsapp") or {}).get("conversas") or []]
+            cobre = "todas" in conv or "privadas" in conv or any(c.isdigit() and variantes(c) & vs for c in conv)
+            if cobre and any(variantes(u) & vs for u in o.get("usuarios_permitidos") or []):
+                return True
+        return False
+
+    def _dentro_do_limite(self, de, chat, mid):
+        """Quem não está liberado: até whatsapp.limite_por_pessoa_dia mensagens por dia. Na primeira que passa, avisa."""
+        limite = self.cfg().get("limite_por_pessoa_dia") or 0
+        if not limite:
+            return True
+        hoje = time.strftime("%Y-%m-%d")
+        contado = {}
+
+        def contar(d):
+            uso = self._est(d).setdefault("uso_por_pessoa", {})
+            for k in [k for k, v in uso.items() if v.get("dia") != hoje]:
+                uso.pop(k)
+            u = uso.setdefault(de, {"dia": hoje, "n": 0})
+            u["n"] += 1
+            contado["n"] = u["n"]
+        self.r.estado.atualizar(contar)
+        if contado["n"] <= limite:
+            return True
+        if contado["n"] == limite + 1:
+            self.r.log(f"+{de} passou do limite de {limite} mensagens hoje")
+            self.aviso(chat, f"🙏 Por hoje deu: por aqui eu respondo até {limite} mensagens por dia. Amanhã tem mais!", mid)
+        return False
 
     def examinar(self, chat, mid, desde):
         if not chat or not mid:
@@ -1429,8 +1479,10 @@ class CanalWhatsApp:
                 return False  # no número do bot, o que sai dele é resposta do próprio bot
             bruto = numero(remetente) or numero(chat)
             de = self.liberado(remetente or chat)
-            if not de and wa.get("qualquer_pessoa") and onde == "grupo":
-                de, aberto = bruto, True  # grupo aberto: qualquer pessoa que chamar o bot é atendida
+            if not de and wa.get("qualquer_pessoa") and onde in ("grupo", "privada"):
+                # grupo aberto, ou a conversa direta dos desconhecidos (num bot com qualquer_pessoa, a privada só chega
+                # por aí): qualquer pessoa que chamar o bot é atendida
+                de, aberto = bruto, True
             if not de:
                 if onde != "grupo":
                     r.log(f"ignorado: mensagem de +{bruto}, que não está liberado")
@@ -1474,6 +1526,8 @@ class CanalWhatsApp:
                 exigir_gatilho_no_audio = True
             else:
                 return False
+        if aberto and not self._dentro_do_limite(de, chat, mid):
+            return False
         msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto,
                "pode_comando": pode_comando, "audio": None, "fotos": [], "arquivos": [], "citada": {},
                "exigir_gatilho": exigir_gatilho_no_audio, "convidado": convidado}
@@ -1496,7 +1550,9 @@ class CanalWhatsApp:
         conversa_com_o_bot = onde == "privada" and not wa.get("meu_numero", True)  # é só você e ele, como a "eu"
         if convidado:
             dono = (r.geral.get("usuario_nome") or "").strip() or "o dono deste bot"
-            quem = "uma pessoa do grupo" if onde == "grupo" else "uma pessoa liberada para falar com este número"
+            quem = ("uma pessoa do grupo" if onde == "grupo" else
+                    "uma pessoa que escreveu para este número e não está entre os liberados" if aberto else
+                    "uma pessoa liberada para falar com este número")
             partes.append(f"Quem pediu foi {nome}, {quem}, e não {dono}. Responda só ao que foi pedido. Não "
                           f"faça nada em nome de {dono} (mandar mensagem, mexer em arquivos, agenda, e-mail) e não conte "
                           f"nada pessoal sobre {dono}.")

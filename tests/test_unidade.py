@@ -171,6 +171,24 @@ class Motor(unittest.TestCase):
                 r.enviar_resultado(7, resposta, None, {}, None, restrito=restrito)
             self.assertEqual([c[0][1] for c in env.call_args_list], esperado, (perm, restrito))
 
+    def test_pedido_de_acesso_avisa_o_dono(self):
+        from unittest import mock
+        from pombo import execucao
+        r = execucao.BotRunner("b", config.validar_bot({"pasta": "~", "usuarios_permitidos": [7, 8]}), config.carregar_geral(), "t")
+        ze = {"de": 8, "nome_de": "Zé (+5531944443333)", "convidado": True}
+        with mock.patch.object(r.canal, "chat_do_dono", return_value=7), mock.patch.object(r.canal, "aviso") as aviso:
+            self.assertEqual(r.pedido_de_acesso(ze, "quero acesso completo", "Vou avisar o Pedro.\nSOLICITAR_ACESSO"),
+                             "Vou avisar o Pedro.")
+            self.assertEqual(aviso.call_args[0][0], 7)
+            self.assertIn("Zé (+5531944443333)", aviso.call_args[0][1])
+            self.assertIn("quero acesso completo", aviso.call_args[0][1])
+            r.pedido_de_acesso(ze, "de novo", "ok\nSOLICITAR_ACESSO")  # a mesma pessoa: um aviso a cada 12 horas
+            self.assertEqual(aviso.call_count, 1)
+            dono = {"de": 7, "convidado": False}  # do dono, a linha some e nada é avisado
+            self.assertEqual(r.pedido_de_acesso(dono, "x", "oi\nSOLICITAR_ACESSO"), "oi")
+            self.assertEqual(aviso.call_count, 1)
+            self.assertEqual(r.pedido_de_acesso(ze, "x", "sem pedido"), "sem pedido")
+
     def test_mcps_do_bot(self):
         cmd, _ = self.cmd(mcps={"x": {"command": "echo"}}, so_mcps_do_bot=True)
         arq = cmd[cmd.index("--mcp-config") + 1]
@@ -1099,6 +1117,54 @@ class NumeroDoBot(unittest.TestCase):
         self.assertEqual(r.canal.liberacao("553176543210@s.whatsapp.net"), ("privada", False))
         self.bot_r.canal._reivindicadas = (0.0, set())
         self.assertEqual(self.bot_r.canal.liberacao("553176543210@s.whatsapp.net"), (None, False))
+
+    def test_desconhecidos_o_ultimo_da_fila(self):
+        # bot aberto para quem não está liberado: você fica no bot com "todas", o convidado no bot dele
+        config.salvar_bot("publico", {"canal": "whatsapp", "pasta": self.dobot, "usuarios_permitidos": ["5531988887777"],
+                                      "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=["desconhecidos"],
+                                                       qualquer_pessoa=True, prefixo="", limite_por_pessoa_dia=2,
+                                                       gatilho_sempre=False)})
+        config.salvar_bot("convidados", {"canal": "whatsapp", "pasta": self.dobot,
+                                         "usuarios_permitidos": ["5531988887777", "5531976543210"],
+                                         "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=["5531976543210"],
+                                                          prefixo="")})
+        from pombo import execucao
+        pub = execucao.BotRunner("publico", config.carregar_bot("publico"), config.carregar_geral(), "")
+        pub.canal.conhecer_numero()
+        self.recebidas["publico"] = []
+        pub.chegou = self.recebidas["publico"].append
+        ze = "5531944443333@s.whatsapp.net"
+        self.assertEqual(pub.canal.liberacao(ze), ("privada", True))
+        self.assertEqual(pub.canal.liberacao("553188887777@s.whatsapp.net"), (None, False))  # você: o bot com "todas"
+        self.assertEqual(pub.canal.liberacao("553176543210@s.whatsapp.net"), (None, False))  # o convidado: o bot dele
+        m = self.chegar(pub, self.dobot, ze, "oi, quem é você?", de_mim=False, nome="Zé")
+        self.assertEqual((m["de"], m["nome_de"], m["convidado"], m["pode_comando"]),
+                         ("5531944443333", "Zé (+5531944443333)", True, False))
+        self.assertIn("não está entre os liberados", m["contexto"])
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, ze, "oi", de_mim=False))  # o bot com "todas" não atende o Zé
+        # limite por dia: a 2ª passa, a 3ª ganha o aviso, a 4ª nem isso
+        self.assertTrue(self.chegar(pub, self.dobot, ze, "e agora?", de_mim=False))
+        self.assertIsNone(self.chegar(pub, self.dobot, ze, "mais uma", de_mim=False))
+        self.assertIn("Por hoje deu", self.f.enviadas(self.dobot)[-1]["text"])
+        n = len(self.f.enviadas(self.dobot))
+        self.assertIsNone(self.chegar(pub, self.dobot, ze, "e mais", de_mim=False))
+        self.assertEqual(len(self.f.enviadas(self.dobot)), n)
+        # sem nenhum outro bot que te atenda, o bot aberto atende você também (como dono)
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["ativo"] = False
+        config.salvar_bot("pombo-zap", cfg)
+        self.assertEqual(pub.canal.liberacao("553188887777@s.whatsapp.net"), ("privada", True))
+
+    def test_desconhecidos_so_com_qualquer_pessoa_no_numero_do_bot(self):
+        base = {"canal": "whatsapp", "pasta": self.dobot}
+        for wa in ({"meu_numero": False, "conversas": ["desconhecidos"], "prefixo": ""},
+                   {"meu_numero": True, "conversas": ["desconhecidos"], "qualquer_pessoa": True}):
+            with self.assertRaises(config.ErroConfig, msg=wa):
+                config.validar_bot(dict(base, whatsapp=wa))
+        wa = dict(self.wa_bot, meu_numero=False, conversas=["desconhecidos"], qualquer_pessoa=True, prefixo="")
+        config.salvar_bot("publico", dict(base, whatsapp=wa))
+        with self.assertRaises(config.ErroConfig):  # um número, um bot dos desconhecidos
+            config.salvar_bot("publico2", dict(base, whatsapp=wa))
 
     def test_grupo_aberto_so_em_grupo_escolhido_e_no_numero_do_bot(self):
         base = {"canal": "whatsapp", "pasta": self.dobot}

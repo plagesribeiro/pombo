@@ -92,6 +92,7 @@ WHATSAPP_PADRAO = {
     "espaco_entre_envios": "1s-3s",  # pausa entre envios (--send-spacing do wacli); vazio = sem pausa
     "reacoes": "simples",           # na sua mensagem: "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"
     "qualquer_pessoa": False,       # nos grupos deste bot, qualquer pessoa que marcar o bot (ou usar o gatilho) é atendida
+    "limite_por_pessoa_dia": 0,     # quem não está liberado: até quantas mensagens por dia são respondidas (0 = sem limite)
 }
 
 ROTINA_PADRAO = {
@@ -109,6 +110,8 @@ ROTINA_PADRAO = {
 ID_VALIDO = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 HORA_VALIDA = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 CURINGAS = ("privadas", "grupos", "todas")  # conversas liberadas por tipo (a pasta padrão), não pelo nome
+# no número do bot, com qualquer_pessoa: a conversa direta de quem nenhum outro bot do número atende (o último da fila)
+DESCONHECIDOS = "desconhecidos"
 JID_VALIDO = re.compile(r"^[0-9a-z.:_-]+@(s\.whatsapp\.net|g\.us|lid)$")
 
 
@@ -363,7 +366,7 @@ def validar_whatsapp(wa, usuarios):
         raise ErroConfig("whatsapp.conta é o nome de uma conta do wacli (letras, números, ponto, hífen)")
     if wa["conta"] and wa["pasta_dados"]:
         raise ErroConfig("use whatsapp.conta ou whatsapp.pasta_dados, não os dois (o wacli não aceita --account com --store)")
-    for campo, minimo, maximo in (("contexto_mensagens", 0, 50), ("intervalo_s", 1, 60)):
+    for campo, minimo, maximo in (("contexto_mensagens", 0, 50), ("intervalo_s", 1, 60), ("limite_por_pessoa_dia", 0, 1000)):
         try:
             wa[campo] = int(wa[campo])
             if not minimo <= wa[campo] <= maximo:
@@ -377,7 +380,7 @@ def validar_whatsapp(wa, usuarios):
     conversas = []
     for c in wa["conversas"]:
         c = str(c).strip().lower()
-        if c == "eu" or c in CURINGAS:
+        if c == "eu" or c in CURINGAS or c == DESCONHECIDOS:
             pass
         elif "@" in c:
             if not JID_VALIDO.match(c):
@@ -408,10 +411,13 @@ def validar_whatsapp(wa, usuarios):
         if wa["meu_numero"]:
             raise ErroConfig("whatsapp.qualquer_pessoa só vale num número só do bot (whatsapp.meu_numero = false): no seu "
                              "número, outras pessoas estariam mandando mensagens em seu nome")
-        soltas = [c for c in conversas if not c.endswith("@g.us")]
+        soltas = [c for c in conversas if not c.endswith("@g.us") and c != DESCONHECIDOS]
         if soltas:
-            raise ErroConfig("com whatsapp.qualquer_pessoa, o bot só pode escutar grupos escolhidos um a um (JIDs ...@g.us); "
-                             f"tire: {', '.join(soltas)}")
+            raise ErroConfig("com whatsapp.qualquer_pessoa, o bot só pode escutar grupos escolhidos um a um (JIDs ...@g.us) "
+                             f'e "{DESCONHECIDOS}" (a conversa direta de quem nenhum outro bot atende); tire: {", ".join(soltas)}')
+    elif DESCONHECIDOS in conversas:
+        raise ErroConfig(f'"{DESCONHECIDOS}" é para atender qualquer pessoa: ligue whatsapp.qualquer_pessoa (só num número '
+                         "do bot, numa pasta isolada)")
     if (grupos or wa["gatilho_sempre"]) and not wa["gatilho"]:
         raise ErroConfig("defina whatsapp.gatilho: " + ("em grupo, o bot só responde quando chamado"
                                                        if grupos else "gatilho_sempre está ligado"))
@@ -527,6 +533,7 @@ def conferir_conversas(bot_id, cfg):
                        (cobre(minhas) & cobre(o["whatsapp"]["conversas"]) & {"privadas", "grupos"}))
         if comum:
             nome = ("a conversa com você mesmo" if comum[0] == "eu" else
+                    "a conversa direta de quem não está liberado (desconhecidos)" if comum[0] == DESCONHECIDOS else
                     f'"{comum[0]}" (a pasta padrão das conversas dos outros)' if comum[0] in CURINGAS else
                     f"a conversa {comum[0]}")
             raise ErroConfig(f'{nome} já é do bot "{outro}" neste mesmo WhatsApp: cada conversa fica com um bot só. '

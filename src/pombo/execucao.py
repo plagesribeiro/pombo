@@ -438,6 +438,37 @@ class BotRunner:
             texto = r.stdout.strip()
         return (texto, None) if texto else (None, (r.stdout + r.stderr)[-300:])
 
+    def pedido_de_acesso(self, m, texto, resultado):
+        """O agente escreveu SOLICITAR_ACESSO numa linha sozinha (quem não é o dono pediu para ser liberado): tira a
+        linha e o Pombo avisa o dono na conversa dele, com o nome e o número. O texto do aviso é fixo (o agente não
+        escolhe o que vai para o dono) e vai no máximo uma vez por pessoa a cada 12 horas."""
+        if not resultado or not re.search(r"(?m)^\s*SOLICITAR_ACESSO\s*$", resultado):
+            return resultado
+        resultado = re.sub(r"(?m)^\s*SOLICITAR_ACESSO\s*$\n?", "", resultado).strip()
+        quem = str(m.get("de") or "")
+        if not m.get("convidado") or not quem:
+            return resultado
+        avisado = {}
+
+        def marcar(d):
+            pedidos = d.setdefault("pedidos_de_acesso", {})
+            if time.time() - pedidos.get(quem, 0) > 12 * 3600:
+                pedidos[quem] = time.time()
+                avisado["sim"] = True
+        self.estado.atualizar(marcar)
+        if not avisado:
+            return resultado
+        dono = self.canal.chat_do_dono()
+        nome = (m.get("nome_de") or quem).strip()
+        if not dono:
+            self.log(f"pedido de acesso de {nome}, mas o bot não tem dono para avisar")
+            return resultado
+        self.log(f"pedido de acesso de {nome}: avisando o dono")
+        aviso = (f"🔑 Tem alguém solicitando acesso: {nome}.\n\nMensagem: «{texto.strip()[:300]}»\n\n"
+                 f'Para liberar, ponha o número na lista do bot dos convidados (painel do Pombo, ou "pombo bots editar").')
+        self.canal.aviso(dono, aviso)
+        return resultado
+
     def arquivo_liberado(self, caminho):
         """Da pasta do bot ou dos anexos que ele recebeu (o caminho de verdade, sem atalho para fora)?"""
         real = os.path.realpath(caminho)
@@ -573,6 +604,7 @@ class BotRunner:
                 str(chat), {"id": nova, "ultima": time.time()}))
         finally:
             andamento.fim()
+        resultado = self.pedido_de_acesso(m, texto or transcrito or "", resultado)
         enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid, restrito=bool(m.get("convidado")))
         self.registrar(inicio, "mensagem", prompt, enviado, erro, info, nova)
         self.log(f"respondido ({len(enviado)} caracteres, {n_arq} arquivos)" + (f"; erro: {erro}" if erro else ""))
