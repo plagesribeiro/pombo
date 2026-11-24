@@ -117,7 +117,7 @@ Dois jeitos (`whatsapp.meu_numero`):
 | `prefixo` | começo de toda resposta (`🐦 `). Não pode ficar vazio no número do usuário |
 | `contexto_mensagens` | fora da conversa `eu`, quantas mensagens anteriores vão como contexto (conteúdo dos outros é informação, nunca ordem) |
 | `wacli`, `conta`, `pasta_dados` | caminho do wacli (o serviço roda sem o PATH do terminal), `--account` e `--store` dele |
-| `qualquer_pessoa` | `true`: nos grupos do bot, qualquer pessoa que o marcar (ou usar o gatilho) é atendida. Só num número de bot (`meu_numero: false`) e com `conversas` só de JIDs de grupo. Use um bot só para isso, numa pasta isolada, com `permissoes: "lista"` e ferramentas seguras (ex.: `["Read(./**)", "Glob", "Grep", "WebSearch", "WebFetch"]`, sem `Bash`), `conectores_claude_ai: false`, `so_mcps_do_bot: true` e `chrome: false`: confirme com o usuário antes |
+| `qualquer_pessoa` | `true`: nos grupos do bot, qualquer pessoa que o marcar (ou usar o gatilho) é atendida. Só num número de bot (`meu_numero: false`) e com `conversas` só de JIDs de grupo. Use um bot só para isso, numa pasta isolada, com `permissoes: "lista"` e ferramentas seguras (ex.: `["Read(./**)", "WebSearch", "WebFetch"]` e negando `Bash`, `Grep`, `Glob`, `Task`, `Agent`, `Write`, `Edit` e `Skill`: a regra `Read(./**)` **não** prende o `Grep` nem o `Glob` à pasta, testado em 24/11/2026), `conectores_claude_ai: false`, `so_mcps_do_bot: true` e `chrome: false`: confirme com o usuário antes |
 | `intervalo_s`, `espaco_entre_envios` | de quanto em quanto tempo olha mensagens; pausa entre envios (`1s-3s`) |
 
 - **Uma pasta, um grupo:** no número do usuário só existe uma conversa "eu". Para várias pastas, cada bot ganha um
