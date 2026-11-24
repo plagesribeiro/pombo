@@ -1085,6 +1085,17 @@ class CanalWhatsApp:
         if reacao:
             reacao.concluir()
 
+    def na_fila(self, chat, mid):
+        """Mensagem esperando o pedido anterior: um ⏳ nela em vez de um texto. Devolve False para cair no aviso."""
+        if not mid or (self.cfg().get("reacoes") or "simples") == "nenhuma":
+            return False
+        try:
+            self.anotar_enviada(self.wa.reagir(chat, mid, "⏳", self._remetentes.get(mid)))
+            return True
+        except Exception as e:
+            self.r.log(f"não deu para marcar a mensagem na fila ({e})")
+            return False
+
     def aviso(self, chat, texto, responder_a=None):
         try:
             self.responder(chat, texto, responder_a)

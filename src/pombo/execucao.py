@@ -246,7 +246,9 @@ class BotRunner:
             self.log(f"comando de {m.get('de')}: {texto[:60]!r}")  # sem isso, um /novo some do log e a conversa "esquece" sem explicação
             return
         if (self.ocupado or not self.fila.empty()) and not m.get("exigir_gatilho"):
-            self.canal.aviso(m["chat"], "⏳ Recebi! Tô terminando o pedido anterior e já vejo esse.", m.get("id"))
+            na_fila = getattr(self.canal, "na_fila", None)
+            if not (na_fila and na_fila(m["chat"], m.get("id"))):
+                self.canal.aviso(m["chat"], "⏳ Recebi! Tô terminando o pedido anterior e já vejo esse.", m.get("id"))
         self.fila.put(("mensagem", m))
 
     def comando(self, texto, chat, mid, de=None):

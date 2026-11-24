@@ -517,11 +517,30 @@ class CanalWhatsApp(unittest.TestCase):
         self.montar()
         del self.r.chegou  # usa o chegou de verdade
         self.r.ocupado = True
-        with mock.patch.object(self.r.canal, "aviso") as aviso:
+        with mock.patch.object(self.r.canal, "aviso") as aviso, \
+                mock.patch.object(self.r.canal, "na_fila", return_value=True) as na_fila:
             self.r.chegou({"chat": self.eu, "id": "X", "de": "eu", "texto": "", "audio": (self.eu, "X"), "exigir_gatilho": True})
-            aviso.assert_not_called()
+            na_fila.assert_not_called()
+            self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi"})
+            na_fila.assert_called_once_with(self.eu, "Y")
+            aviso.assert_not_called()  # no WhatsApp, a fila é um ⏳ na mensagem, não um texto
+
+    def test_fila_sem_reacao_cai_no_aviso(self):
+        from unittest import mock
+        self.montar()
+        del self.r.chegou
+        self.r.ocupado = True
+        with mock.patch.object(self.r.canal, "aviso") as aviso, \
+                mock.patch.object(self.r.canal, "na_fila", return_value=False):
             self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi"})
             aviso.assert_called_once()
+
+    def test_na_fila_reage_com_ampulheta(self):
+        from unittest import mock
+        self.montar()
+        with mock.patch.object(self.c.wa, "reagir", return_value="R1") as reagir:
+            self.assertTrue(self.c.na_fila(self.eu, "Y"))
+        self.assertEqual(reagir.call_args[0][:3], (self.eu, "Y", "⏳"))
 
     def test_erro_do_wacli_vem_legivel(self):
         from pombo.whatsapp import ErroWhatsApp
