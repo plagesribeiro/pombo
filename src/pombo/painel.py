@@ -256,6 +256,11 @@ def rota_whatsapp(metodo, p, q, corpo):
     from . import whatsapp
     if p == [] and metodo == "GET":
         return {"numeros": whatsapp.numeros_locais(), "casa": os.path.expanduser("~")}
+    if p == ["computador"] and metodo == "GET":  # o que os outros computadores com o mesmo WhatsApp perguntam
+        return whatsapp.descrever_computador()
+    if p == ["outros-computadores"] and metodo == "GET":
+        return {"computadores": whatsapp.atualizar_outros_computadores() if q.get("agora") else
+                (config.ler_json(config.arq_outros_computadores(), {}).get("computadores") or {})}
     if p == ["grupos"] and metodo == "GET":
         # o número vem pela chave e é procurado aqui: nada da URL (caminho de programa, pasta) vai para o wacli
         n = numero_pela_chave(q.get("chave"))

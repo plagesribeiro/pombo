@@ -24,6 +24,9 @@ Notas da sua instalação (máquinas, pendências) ficam no `CLAUDE.local.md`, q
 - `src/pombo/cli.py`: linha de comando. `src/pombo/instalar.py`: systemd/launchd/Windows, comando no PATH, Tailscale e skill.
 - `src/pombo/atualizar.py`: `pombo atualizar` (git pull + aviso em `atualizacao.json`); o serviço reinicia a si mesmo
   quando nenhum bot está ocupado (`os.execv`; no Windows sai com código 75 e a tarefa religa) e avisa no Telegram.
+- Vários computadores no mesmo WhatsApp (`geral.outros_computadores`, em `whatsapp.py`): cada um pergunta ao painel
+  dos outros (`GET /api/whatsapp/computador`) quais bots estão ligados lá e guarda em `estado/_outros_computadores.json`;
+  `liberacao`, `_de_outro_bot` e `_numeros_de_bot` levam isso em conta.
 - `src/pombo/migrar.py`: converte a configuração da versão antiga (um bot só) para `bots/<id>.json`.
 - `INSTALAR.md`: roteiro que o Claude Code segue para instalar o Pombo (o prompt do README aponta para ele).
   Mudou a instalação, um comando ou um campo usado lá? Atualize o roteiro junto.

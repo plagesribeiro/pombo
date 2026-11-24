@@ -44,6 +44,9 @@ GERAL_PADRAO = {
     "painel_porta": PORTA_PAINEL,
     "hosts_permitidos": [],
     "telegram_api": "https://api.telegram.org",
+    # painéis do Pombo nos outros computadores com o mesmo WhatsApp (ex.: "https://mac.sua-tailnet.ts.net:10004"):
+    # a pasta padrão daqui deixa para eles as conversas que os bots de lá pegaram pelo nome (veja whatsapp.py)
+    "outros_computadores": [],
 }
 
 BOT_PADRAO = {
@@ -194,8 +197,44 @@ def salvar_geral(g):
         raise ErroConfig("meu_id_telegram precisa ser o número do seu ID do Telegram")
     if not isinstance(limpo["hosts_permitidos"], list):
         raise ErroConfig("hosts_permitidos precisa ser uma lista")
+    limpo["outros_computadores"] = validar_outros_computadores(limpo["outros_computadores"])
     gravar_json(caminho("geral.json"), limpo)
     return limpo
+
+
+def validar_outros_computadores(lista):
+    if isinstance(lista, str):
+        lista = [x for x in re.split(r"[,\s]+", lista) if x]
+    if not isinstance(lista, list):
+        raise ErroConfig("outros_computadores precisa ser uma lista de endereços do painel, "
+                         'como ["https://mac.sua-tailnet.ts.net:10004"]')
+    limpa = []
+    for u in lista:
+        u = str(u).strip().rstrip("/")
+        if not re.match(r"^https?://[^/\s]+$", u):
+            raise ErroConfig(f'"{u}" não parece o endereço do painel de outro computador '
+                             "(ex.: https://mac.sua-tailnet.ts.net:10004, sem nada depois da porta)")
+        if u not in limpa:
+            limpa.append(u)
+    return limpa
+
+
+def arq_outros_computadores():
+    """O que os outros computadores disseram da última vez (fica guardado: computador dormindo não muda nada)."""
+    return caminho("estado", "_outros_computadores.json")
+
+
+def bots_de_outros_computadores():
+    """[(nome do computador, número, bot)] dos bots de WhatsApp ligados nos outros computadores (última resposta
+    guardada de cada um). Número: {"telefone", "lid", "grupos"}; bot: {"id", "nome", "usuarios_permitidos",
+    "whatsapp": {"meu_numero", "conversas"}}."""
+    lista = []
+    for maq in (ler_json(arq_outros_computadores(), {}).get("computadores") or {}).values():
+        for n in maq.get("numeros") or []:
+            for b in n.get("bots") or []:
+                if b.get("ativo"):
+                    lista.append((maq.get("nome_maquina") or maq.get("url") or "?", n, b))
+    return lista
 
 
 # ---------------------------------------------------------------- bots
@@ -462,6 +501,12 @@ def conferir_conversas(bot_id, cfg):
 
     def cobre(cs):  # "todas" cobre "privadas" e "grupos"
         return set(cs) | ({"privadas", "grupos"} if "todas" in cs else set())
+    # grupo já ligado pelo nome a um bot de outro computador: é dele (o JID do grupo é o mesmo em qualquer número)
+    for maquina, _n, o in bots_de_outros_computadores():
+        comum = sorted({c for c in minhas & set((o.get("whatsapp") or {}).get("conversas") or []) if c.endswith("@g.us")})
+        if comum:
+            raise ErroConfig(f'o grupo {comum[0]} já é do bot "{o.get("id")}" no computador "{maquina}": cada grupo fica '
+                             "com um bot só. Tire o grupo de lá antes")
     for outro in listar_ids():
         if outro == bot_id:
             continue

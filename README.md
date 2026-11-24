@@ -262,8 +262,24 @@ pombo whatsapp grupo ligar --bot obra-zap --nome "Obra" --so-o-grupo  # uma past
   chips). Ele precisa abrir de vez em quando: com uns 14 dias sem internet, o WhatsApp desconecta os aparelhos
   ligados a ele.
 
-Um número só pode estar em **um** computador com o Pombo (dois responderiam em dobro). O `wacli` guarda as conversas
-no disco (`~/.wacli`): deixe o disco criptografado.
+**O mesmo número em mais de um computador.** Dá para parear o número do Pombo no notebook e num servidor, por
+exemplo, cada um com as suas pastas: a pasta padrão (`todas`) fica num computador, e os grupos ligados pelo nome a um
+bot do outro computador são atendidos lá. Para os dois não responderem em dobro, cada um precisa saber do outro: com o
+painel publicado pelo [Tailscale](#painel-no-celular) nos dois, ponha em cada um o endereço do painel do outro:
+
+```bash
+pombo geral 'outros_computadores=["https://servidor.sua-tailnet.ts.net:10004"]'   # no notebook
+pombo geral 'outros_computadores=["https://notebook.sua-tailnet.ts.net:10004"]'   # no servidor
+pombo whatsapp computadores                                                     # o que o outro atende
+```
+
+A cada minuto, cada um pergunta ao outro quais bots de WhatsApp estão ligados lá: a pasta padrão daqui deixa para lá
+os grupos e conversas dos bots de lá, o seu número sai da frente onde o número do Pombo de lá te atende, e o `salvar`
+recusa ligar aqui um grupo que já é de lá. Computador desligado ou dormindo continua valendo com a última resposta
+(e os grupos dele ficam sem resposta até ele voltar). Deixe a pasta padrão num computador só: se os dois tiverem,
+responde só o de nome menor em ordem alfabética, e o status do outro avisa.
+
+O `wacli` guarda as conversas no disco (`~/.wacli`): deixe o disco criptografado.
 
 ## Rotinas
 

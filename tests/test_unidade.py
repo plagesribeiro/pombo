@@ -1045,3 +1045,132 @@ class NumeroDoBot(unittest.TestCase):
                    {"meu_numero": False, "conversas": [self.grupo, "privadas"], "qualquer_pessoa": True, "prefixo": ""}):
             with self.assertRaises(config.ErroConfig, msg=wa):
                 config.validar_bot(dict(base, whatsapp=wa))
+
+
+class VariosComputadores(unittest.TestCase):
+    """O mesmo número do Pombo pareado em dois computadores: a pasta padrão fica num, e os grupos ligados pelo nome
+    a um bot do outro computador são de lá (ninguém responde em dobro). Usa o mesmo cenário do NumeroDoBot."""
+    chegar = NumeroDoBot.chegar
+
+    def setUp(self):
+        NumeroDoBot.setUp(self)
+        self.geral = {**config.carregar_geral(), "nome_maquina": "Ubuntu"}
+        for r in (self.meu_r, self.bot_r):
+            r.geral = self.geral
+        self.obra = self.f.grupo(self.dobot, "Obra", outros=["553188887777"])
+
+    def tearDown(self):
+        try:
+            os.remove(config.arq_outros_computadores())
+        except OSError:
+            pass
+
+    def outro(self, bots, telefone="5531977776666", grupos=(), nome="Mac"):
+        config.gravar_json(config.arq_outros_computadores(), {"computadores": {"https://mac:10004": {
+            "url": "https://mac:10004", "nome_maquina": nome, "numeros": [
+                {"telefone": telefone, "lid": "", "grupos": list(grupos), "bots": bots}]}}})
+        for r in (self.meu_r, self.bot_r):
+            r.canal._reivindicadas, r.canal._outros = (0.0, set()), (0.0, [])
+
+    def bot(self, conversas, id="obra-zap", meu_numero=False, usuarios=("5531988887777",)):
+        return {"id": id, "nome": id, "ativo": True, "usuarios_permitidos": list(usuarios),
+                "whatsapp": {"meu_numero": meu_numero, "conversas": conversas}}
+
+    def test_grupo_de_um_bot_do_outro_computador_e_dele(self):
+        c = self.bot_r.canal
+        self.assertEqual(c.liberacao(self.obra), ("grupo", True))  # antes: a pasta padrão daqui atende
+        self.outro([self.bot([self.obra])])
+        self.assertEqual(c.liberacao(self.obra), (None, False))  # agora é do Mac
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.obra, "@5531977776666 oi", de_mim=False,
+                                      remetente="553188887777@s.whatsapp.net"))
+        self.assertEqual(c.liberacao(self.grupo), ("grupo", True))  # o resto continua aqui
+        self.assertEqual(c.liberacao("553188887777@s.whatsapp.net"), ("privada", True))  # e a conversa direta também
+        # bot pausado no Mac não pega nada
+        b = self.bot([self.obra])
+        b["ativo"] = False
+        self.outro([b])
+        self.assertEqual(c.liberacao(self.obra), ("grupo", True))
+
+    def test_duas_pastas_padrao_so_uma_responde(self):
+        self.outro([self.bot(["todas"], id="pombo-zap")], nome="Mac")  # "Mac" < "Ubuntu": o Mac ganha
+        self.assertEqual(self.bot_r.canal.liberacao(self.grupo), (None, False))
+        self.assertIn("Mac", self.bot_r.canal.aviso_padrao)
+        self.outro([self.bot(["todas"], id="pombo-zap")], nome="Windows")  # "Ubuntu" < "Windows": aqui ganha
+        self.assertEqual(self.bot_r.canal.liberacao(self.grupo), ("grupo", True))
+        # outro número com pasta padrão no outro computador não conta
+        self.outro([self.bot(["todas"], id="x")], telefone="5531900001111", nome="Mac")
+        self.assertEqual(self.bot_r.canal.liberacao(self.grupo), ("grupo", True))
+
+    def test_seu_numero_sai_da_frente_do_pombo_do_outro_computador(self):
+        config.remover_bot("pombo-zap")  # o número do Pombo não tem bot ligado neste computador
+        self.w.esquecer_caches()
+        c = self.meu_r.canal
+        self.outro([])
+        self.assertEqual(c.liberacao(self.grupo), ("grupo", True))
+        # no outro computador, a pasta padrão do Pombo te atende, e ele está no Mestrado (mas não na Família)
+        self.outro([self.bot(["todas"], id="pombo-zap")], grupos=[self.grupo])
+        self.assertEqual(c.liberacao(self.grupo), (None, False))
+        self.assertEqual(c.liberacao(self.familia), ("grupo", True))
+        self.assertEqual(c.liberacao(self.bot_jid), (None, False))  # a conversa direta com o Pombo também é dele
+
+    def test_nao_deixa_ligar_grupo_que_ja_e_de_outro_computador(self):
+        self.outro([self.bot([self.obra])])
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["whatsapp"]["conversas"] = ["todas", self.obra]
+        with self.assertRaises(config.ErroConfig) as e:
+            config.salvar_bot("pombo-zap", cfg)
+        self.assertIn('computador "Mac"', str(e.exception))
+
+    def test_descrever_e_perguntar_ao_outro_computador(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from pombo import painel
+        self.w.esquecer_caches()
+        eu = painel.rota(None, "GET", "/api/whatsapp/computador", {}, {})
+        self.assertEqual(eu["nome_maquina"], config.carregar_geral()["nome_maquina"])
+        do_bot = next(n for n in eu["numeros"] if n["telefone"] == "5531977776666")
+        self.assertIn(self.grupo, do_bot["grupos"])
+        self.assertEqual([b["id"] for b in do_bot["bots"]], ["pombo-zap"])
+        self.assertEqual(do_bot["bots"][0]["whatsapp"]["conversas"], ["todas"])
+        meu = next(n for n in eu["numeros"] if n["telefone"] == "553188887777")
+        self.assertEqual(meu["grupos"], [])  # os grupos do seu número não saem daqui
+
+        resposta = {"nome_maquina": "Mac", "versao": "x", "numeros": [{"telefone": "5531977776666", "bots": []}]}
+        cabecalhos = []
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                cabecalhos.append((self.path, self.headers.get("X-Pombo")))
+                dados = json.dumps(resposta).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(dados)))
+                self.end_headers()
+                self.wfile.write(dados)
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        g = config.carregar_geral()
+        try:
+            config.salvar_geral({**g, "outros_computadores": [url + "/"]})
+            m = self.w.atualizar_outros_computadores(timeout=3)[url]
+            self.assertEqual((m["nome_maquina"], m["erro"]), ("Mac", ""))
+            self.assertEqual(cabecalhos, [("/api/whatsapp/computador", "1")])
+            srv.shutdown()
+            srv.server_close()
+            m = self.w.atualizar_outros_computadores(timeout=2)[url]  # desligado: fica a última resposta
+            self.assertTrue(m["erro"])
+            self.assertEqual(m["nome_maquina"], "Mac")
+        finally:
+            config.salvar_geral(g)
+
+    def test_endereco_do_outro_computador(self):
+        with self.assertRaises(config.ErroConfig):
+            config.validar_outros_computadores(["mac.tailnet:10004"])
+        with self.assertRaises(config.ErroConfig):
+            config.validar_outros_computadores(["https://mac:10004/api"])
+        self.assertEqual(config.validar_outros_computadores("https://a:1/ https://a:1"), ["https://a:1"])
+

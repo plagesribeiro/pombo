@@ -134,7 +134,15 @@ Dois jeitos (`whatsapp.meu_numero`):
   quando a resposta sai; `etapas` mostra também 🎧 ouvindo, 🧠 pensando e 🛠️ ferramentas (no máximo uma troca a cada
   3 s; cada troca também chega no celular do dono do número); `nenhuma` desliga.
 - Nas conversas dos outros, o agente é avisado de que a resposta aparece para todos daquela conversa.
-- Só um computador por número: dois `wacli` no mesmo número respondem em dobro.
+- **O mesmo número em vários computadores:** cada computador pareia o número (`pombo whatsapp parear --numero
+  NOME`) e põe em `geral.outros_computadores` o endereço do painel dos outros pelo Tailscale (ex.:
+  `pombo geral 'outros_computadores=["https://outro.sua-tailnet.ts.net:10004"]'`). A cada minuto um pergunta ao outro
+  (`GET /api/whatsapp/computador`) quais bots estão ligados lá: a pasta padrão daqui deixa para lá as conversas que os
+  bots de lá pegaram pelo nome, e o `salvar` recusa ligar um grupo que já é de outro computador. Para um grupo rodar
+  em outro computador, crie lá o bot do grupo. A pasta padrão (`todas`) fica num computador só (se houver nas duas,
+  responde a de `nome_maquina` menor e a outra avisa no status). `pombo whatsapp computadores` mostra o que cada
+  outro computador atende e se ele respondeu. Sem `outros_computadores`, dois computadores no mesmo número respondem
+  em dobro.
 - "O bot do WhatsApp não liga": `pombo whatsapp status --bot ID` e `pombo log ID -n 80`. Se o WhatsApp desconectou o
   aparelho, o usuário roda `pombo whatsapp parear --bot ID` no terminal.
 

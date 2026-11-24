@@ -386,6 +386,8 @@ def cmd_whatsapp(a):
         if cfg["canal"] != "whatsapp":
             sair(f'o bot "{a.bot}" não é do WhatsApp')
         wa = cfg["whatsapp"]
+    if a.acao == "computadores":
+        return cmd_whatsapp_computadores()
     w = Wacli(wa)
     if not w.bin:
         sair("Não achei o wacli. Instale com: brew install openclaw/tap/wacli  (ou veja github.com/openclaw/wacli)")
@@ -461,6 +463,24 @@ def comando_parear(a):
     if a.por_conversa:
         args += ["--history-max-per-chat", str(a.por_conversa)]
     return args
+
+
+def cmd_whatsapp_computadores():
+    """Pergunta agora aos outros computadores (geral.outros_computadores) e mostra o que cada um atende."""
+    import datetime as dt
+    from .whatsapp import atualizar_outros_computadores
+    if not config.carregar_geral().get("outros_computadores"):
+        print("Nenhum outro computador configurado. Para pôr o painel de outro computador com o mesmo WhatsApp:\n"
+              "  pombo geral 'outros_computadores=[\"https://outro.sua-tailnet.ts.net:10004\"]'")
+        return
+    for url, m in atualizar_outros_computadores().items():
+        visto = dt.datetime.fromtimestamp(m["visto"]).strftime("%d/%m %H:%M") if m.get("visto") else "nunca"
+        print(f"- {m.get('nome_maquina') or url}  ({url})  " +
+              (f"SEM RESPOSTA: {m['erro']} (vale o que ele disse em {visto})" if m.get("erro") else f"ok, versão {m.get('versao')}"))
+        for n in m.get("numeros") or []:
+            for b in n.get("bots") or []:
+                conv = ", ".join((b.get("whatsapp") or {}).get("conversas") or [])
+                print(f"    +{n['telefone']}  {b['id']}{'' if b.get('ativo') else ' (pausado)'}: {conv}")
 
 
 def cmd_whatsapp_grupo(a, w):
@@ -614,7 +634,7 @@ def montar():
     s.set_defaults(fn=cmd_rotinas)
 
     s = sub.add_parser("whatsapp", help="conectar o WhatsApp (wacli) neste computador")
-    s.add_argument("acao", choices=["parear", "status", "grupo", "grupos"])
+    s.add_argument("acao", choices=["parear", "status", "grupo", "grupos", "computadores"])
     s.add_argument("grupo_acao", nargs="?", choices=["criar", "ligar"], help="com grupo: criar ou ligar")
     s.add_argument("--bot", help="usa a conta do wacli deste bot")
     s.add_argument("--nome", help="com grupo: nome do grupo (ou o JID, em ligar)")
