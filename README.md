@@ -305,6 +305,7 @@ pombo rotinas criar pessoal --nome "Agenda do dia" --horarios 08:30 --dias seg,t
 <img src="docs/rotinas.png" alt="Rotinas e últimas execuções no painel" width="640">
 
 - O resultado chega no chat com ⏰ e o nome da rotina. **Responder a ele continua a conversa daquela rodada.**
+- No WhatsApp, um bot ligado a **um grupo só** manda as rotinas para esse grupo; os outros, para a sua conversa privada.
 - **Silenciosa:** se não houver nada de novo, o Claude responde `SEM_NOVIDADE` e nada é enviado. Ótimo para
   "me avise se chegar algo importante".
 - **Conversa:** `nova` (cada rodada começa do zero) ou `continuar` (a rodada lembra da anterior).

@@ -1014,6 +1014,13 @@ class CanalWhatsApp:
         achado = next((v for v in variantes(u[0]) if v in telefones), u[0])  # o JID de verdade (com ou sem o 9)
         return f"{achado}@s.whatsapp.net"
 
+    def chat_das_rotinas(self):
+        """Bot ligado a um grupo só (ex.: criado com --grupo): as rotinas vão para esse grupo, não para o privado."""
+        conversas = [str(c) for c in self.cfg().get("conversas") or []]
+        if len(conversas) == 1 and conversas[0].endswith("@g.us"):
+            return conversas[0]
+        return None
+
     def _sou_eu(self, jid):
         """O próprio número pareado (pelo telefone, com e sem o 9, ou pelo LID)."""
         return bool(self.meu_numero) and (numero(jid) in variantes(self.meu_numero) or jid in self.meus_jids or

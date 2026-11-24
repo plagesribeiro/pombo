@@ -38,7 +38,7 @@ pombo bots remover ID --sim           # só com confirmação explícita do usu�
 pombo rotinas ID                      # lista
 pombo rotinas criar ID --nome "Agenda do dia" --horarios 08:30 --dias seg,ter,qua,qui,sex --prompt "..." [--silenciosa] [--conversa continuar]
 pombo rotinas editar ID ROTINA horarios=07:00,12:00 ativa=false prompt="..."
-pombo rotinas rodar ID ROTINA         # roda agora; o resultado vai para o Telegram
+pombo rotinas rodar ID ROTINA         # roda agora; o resultado vai para o dono (no WhatsApp, para o grupo, se o bot tiver um grupo só)
 pombo rotinas remover ID ROTINA
 
 pombo log ID -n 80                    # últimas linhas do log do bot

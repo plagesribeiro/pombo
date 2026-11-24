@@ -217,6 +217,11 @@ class BotRunner:
         """Para onde vão rotinas e avisos: a conversa do dono do bot."""
         return self.canal.chat_do_dono()
 
+    def destino_rotinas(self):
+        """Para onde vão as rotinas: o grupo do bot, se ele for ligado a um grupo só; senão, a conversa do dono."""
+        f = getattr(self.canal, "chat_das_rotinas", None)
+        return (f() if f else None) or self.dono()
+
     # ---- receber (o canal chama)
 
     def _ouvir(self):
@@ -331,7 +336,7 @@ class BotRunner:
                     self.processar_rotina(item[1], manual=item[2])
             except Exception:
                 self.log("erro ao processar:\n" + traceback.format_exc())
-                chat = item[1].get("chat") if item[0] == "mensagem" else self.dono()
+                chat = item[1].get("chat") if item[0] == "mensagem" else self.destino_rotinas()
                 if chat:
                     try:
                         ultimo = traceback.format_exc().strip().splitlines()[-1][:200]
@@ -618,7 +623,7 @@ class BotRunner:
         if not r:
             self.log(f'rotina "{rid}" não existe mais')
             return
-        chat = self.dono()
+        chat = self.destino_rotinas()
         if not chat:
             self.log(f'rotina "{r["nome"]}" não rodou: o bot não tem nenhum usuário liberado para receber o resultado')
             return
