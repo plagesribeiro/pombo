@@ -1158,6 +1158,13 @@ class NumeroDoBot(unittest.TestCase):
         self.assertTrue(self.meu_r.canal.grupo_so_meu(so_eu))
         self.assertFalse(self.meu_r.canal.grupo_so_meu(self.familia))
 
+    def test_so_marcar_o_pombo_e_um_chamado(self):
+        dono = "553188887777@s.whatsapp.net"
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666", de_mim=False, remetente=dono)
+        self.assertEqual((m["texto"], m["so_chamou"]), ("", True))
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 oi", de_mim=False, remetente=dono)
+        self.assertFalse(m["so_chamou"])
+
     def test_grupo_criado_no_numero_do_bot_ja_tem_o_dono(self):
         from pombo import cli
         jid = cli.criar_grupo(dict(self.wa_bot, meu_numero=False), "Novo", ["5531988887777"])

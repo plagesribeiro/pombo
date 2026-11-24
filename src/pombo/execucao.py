@@ -580,7 +580,8 @@ class BotRunner:
                 extras.append(m["contexto"])
             if not partes and not extras:
                 andamento.fim()
-                canal.responder(chat, "Não entendi esse tipo de mensagem. Manda texto, áudio, foto ou arquivo.", mid)
+                canal.responder(chat, "👋 Tô aqui! Pode mandar." if m.get("so_chamou") else
+                                "Não entendi esse tipo de mensagem. Manda texto, áudio, foto ou arquivo.", mid)
                 return
             prompt = f"Mensagem de {usuario} ({canal.nome}): " + "\n".join(partes or ["(sem texto)"])
             if extras:

@@ -1587,7 +1587,8 @@ class CanalWhatsApp:
                 return False
         if aberto and not self._dentro_do_limite(de, chat, mid):
             return False
-        msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto,
+        so_chamou = (achou or responde_ao_bot) and not texto.strip() and not midia  # só "@Pombo" ou "pombo"
+        msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto, "so_chamou": so_chamou,
                "pode_comando": pode_comando, "audio": None, "fotos": [], "arquivos": [], "citada": {},
                "exigir_gatilho": exigir_gatilho_no_audio, "convidado": convidado}
         anexo = (chat, mid)
