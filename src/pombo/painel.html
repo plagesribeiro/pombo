@@ -453,6 +453,7 @@ function whatsappHTML(b, c) {
       <span class="det">Grupo marcado aqui é deste bot, mesmo que outro bot seja a pasta padrão.</span>
     </div>
     <label class="f"><span class="l">Outras conversas, pelo número (separadas por vírgula)</span><input type="text" id="zap-outras" value="${esc(outras.join(", "))}" placeholder="+55 31 99999-0000"></label>
+    ${w.meu_numero ? "" : `<label class="tog"><input type="checkbox" data-w="1" data-c="qualquer_pessoa" data-t="bool" ${w.qualquer_pessoa ? "checked" : ""}><span>Qualquer pessoa do grupo pode chamar<small>Quem marcar o bot (ou usar o gatilho) nos grupos acima é atendido. Só vale com grupos escolhidos um a um (sem a pasta padrão nem conversa direta). Use numa pasta isolada, sem acesso às suas coisas: o que ele responde, todos veem.</small></span></label>`}
     <div class="grid2">
       <div>
         <label class="f"><span class="l">Gatilho</span><input type="text" data-w="1" data-c="gatilho" value="${esc(w.gatilho)}" placeholder="pombo"></label>

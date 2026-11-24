@@ -250,6 +250,10 @@ pombo whatsapp grupo ligar --bot obra-zap --nome "Obra" --so-o-grupo  # uma past
   outros grupos e na conversa direta. Tudo isso dá para escolher no painel, com a lista de grupos do número.
 - **Onde o número do Pombo está, o bot do seu número sai da frente** (nem o "pombo, ..." vai para ele ali), para não
   responder em dobro.
+- **Grupo aberto:** com `whatsapp.qualquer_pessoa=true`, qualquer pessoa de um grupo escolhido que marcar o Pombo é
+  atendida (o Claude sabe que não foi você e não age em seu nome). Só vale num número de bot e em grupos ligados pelo
+  nome; use um bot numa pasta isolada, com `permissoes: "lista"` e só ferramentas seguras (sem `Bash`), porque o que
+  ele responde todos veem, e qualquer um do grupo gasta a sua assinatura.
 - Só quem estiver liberado chama, mesmo quando o WhatsApp esconde o número em grupos (o Pombo reconhece você pelo LID
   e com ou sem o 9 do celular).
 - O número do Pombo precisa de um WhatsApp principal num celular (o WhatsApp Business serve, num aparelho com dois

@@ -1018,3 +1018,30 @@ class NumeroDoBot(unittest.TestCase):
         self.assertEqual(c.liberado("55556666777788@lid"), "5531988887777")  # o seu LID, de um número pareado aqui
         self.assertEqual(c.liberado("553188887777@s.whatsapp.net"), "5531988887777")
         self.assertIsNone(c.liberado("5531988887777@lid"))  # um LID com os dígitos do seu telefone não é você
+
+    def test_grupo_aberto_qualquer_pessoa_marcando(self):
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["whatsapp"].update({"conversas": [self.grupo], "qualquer_pessoa": True})
+        config.salvar_bot("pombo-zap", cfg)
+        self.bot_r.cfg = config.carregar_bot("pombo-zap")
+        ze = "5531955556666@s.whatsapp.net"
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 qual o prazo?", de_mim=False,
+                        remetente=ze, nome="Zé")
+        self.assertEqual((m["texto"], m["de"], m["nome_de"], m["pode_comando"]), ("qual o prazo?", "5531955556666", "Zé", False))
+        self.assertIn("e não", m["contexto"])  # o agente sabe que não foi o dono quem pediu
+        self.assertFalse(self.bot_r.canal.eh_dono(m["de"]))
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, "conversa normal", de_mim=False, remetente=ze))
+        self.bot_r.cfg["transcricao_cmd"] = ["echo", "{arquivo}"]
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, midia="audio", de_mim=False, remetente=ze))
+        # o dono continua sendo o dono
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "pombo, oi", de_mim=False, remetente="553188887777@s.whatsapp.net")
+        self.assertTrue(self.bot_r.canal.eh_dono(m["de"]))
+        self.assertIsNone(m["nome_de"])
+
+    def test_grupo_aberto_so_em_grupo_escolhido_e_no_numero_do_bot(self):
+        base = {"canal": "whatsapp", "pasta": self.dobot}
+        for wa in ({"meu_numero": True, "conversas": [self.grupo], "qualquer_pessoa": True},
+                   {"meu_numero": False, "conversas": ["todas"], "qualquer_pessoa": True, "gatilho_sempre": False, "prefixo": ""},
+                   {"meu_numero": False, "conversas": [self.grupo, "privadas"], "qualquer_pessoa": True, "prefixo": ""}):
+            with self.assertRaises(config.ErroConfig, msg=wa):
+                config.validar_bot(dict(base, whatsapp=wa))

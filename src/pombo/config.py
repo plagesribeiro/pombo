@@ -88,6 +88,7 @@ WHATSAPP_PADRAO = {
     "intervalo_s": 1,               # de quanto em quanto tempo olha se chegou mensagem
     "espaco_entre_envios": "1s-3s",  # pausa entre envios (--send-spacing do wacli); vazio = sem pausa
     "reacoes": "simples",           # na sua mensagem: "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"
+    "qualquer_pessoa": False,       # nos grupos deste bot, qualquer pessoa que marcar o bot (ou usar o gatilho) é atendida
 }
 
 ROTINA_PADRAO = {
@@ -309,7 +310,7 @@ def validar_whatsapp(wa, usuarios):
     for campo in ("wacli", "conta", "pasta_dados", "gatilho", "prefixo", "espaco_entre_envios"):
         if not isinstance(wa[campo], str):
             raise ErroConfig(f"whatsapp.{campo} precisa ser um texto")
-    for campo in ("meu_numero", "gatilho_sempre"):
+    for campo in ("meu_numero", "gatilho_sempre", "qualquer_pessoa"):
         wa[campo] = bool(wa[campo])
     wa["gatilho"] = wa["gatilho"].strip().lstrip("@").strip()
     if wa["gatilho"] and not re.match(r"^\w[\w-]*$", wa["gatilho"]):
@@ -362,6 +363,16 @@ def validar_whatsapp(wa, usuarios):
             raise ErroConfig('a conversa "eu" só existe quando o WhatsApp pareado é o seu número (whatsapp.meu_numero)')
         if not usuarios:
             pass  # sem ninguém liberado, ninguém fala com o bot (quem tentar aparece no painel)
+    if wa["qualquer_pessoa"]:
+        # outras pessoas chamando um agente: só num número de bot e só em grupos escolhidos um a um (nunca na pasta
+        # padrão, na conversa direta ou no seu número, onde ele responderia por você)
+        if wa["meu_numero"]:
+            raise ErroConfig("whatsapp.qualquer_pessoa só vale num número só do bot (whatsapp.meu_numero = false): no seu "
+                             "número, outras pessoas estariam mandando mensagens em seu nome")
+        soltas = [c for c in conversas if not c.endswith("@g.us")]
+        if soltas:
+            raise ErroConfig("com whatsapp.qualquer_pessoa, o bot só pode escutar grupos escolhidos um a um (JIDs ...@g.us); "
+                             f"tire: {', '.join(soltas)}")
     if (grupos or wa["gatilho_sempre"]) and not wa["gatilho"]:
         raise ErroConfig("defina whatsapp.gatilho: " + ("em grupo, o bot só responde quando chamado"
                                                        if grupos else "gatilho_sempre está ligado"))
