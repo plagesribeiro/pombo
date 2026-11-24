@@ -889,7 +889,10 @@ class NumeroDoBot(unittest.TestCase):
         self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 me ajuda", de_mim=False,
                                       remetente="5531955556666@s.whatsapp.net"))
         # conversa direta com o número do bot: tudo, sem marcar; e as rotinas vão para lá (com o JID sem o 9)
-        self.assertEqual(self.chegar(self.bot_r, self.dobot, dono, "oi", de_mim=False)["texto"], "oi")
+        m = self.chegar(self.bot_r, self.dobot, dono, "oi", de_mim=False, nome="Eu")
+        self.assertEqual(m["texto"], "oi")
+        self.assertIsNone(m["nome_de"])  # o dono é chamado pelo nome do Pombo, não pelo do contato ("Eu")
+        self.assertNotIn("contexto", m)  # a conversa direta é só vocês dois
         self.assertEqual(self.bot_r.canal.chat_do_dono(), dono)
 
     def test_seu_numero_sai_da_frente(self):

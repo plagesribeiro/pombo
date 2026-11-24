@@ -1377,7 +1377,8 @@ class CanalWhatsApp:
                     r.log(f"ignorado: mensagem de +{bruto}, que não está liberado")
                     r.anotar_desconhecido(bruto, m.get("SenderName") or "", "", texto)
                 return False
-            nome = m.get("SenderName") or ""
+            # o dono: o nome que vem é o dos contatos do celular do bot (às vezes "Eu"); vale o do Pombo (usuario_nome)
+            nome = "" if self.eh_dono(de) else (m.get("SenderName") or "")
         # gatilho
         citada_id = m.get("quoted_msg_id") or ""
         responde_ao_bot = bool(citada_id) and citada_id in (est.get("enviadas") or [])
@@ -1426,7 +1427,8 @@ class CanalWhatsApp:
                      else f'na conversa com {m.get("ChatName") or "+" + numero(chat)}')
             partes.append(f"Atenção: esta mensagem veio {lugar} do WhatsApp, e a sua resposta vai aparecer lá, para "
                           "todos que estão nessa conversa. Não exponha informação pessoal que não foi pedida.")
-        if onde not in ("eu", "meu_grupo") and wa.get("contexto_mensagens"):
+        conversa_com_o_bot = onde == "privada" and not wa.get("meu_numero", True)  # é só você e ele, como a "eu"
+        if onde not in ("eu", "meu_grupo") and not conversa_com_o_bot and wa.get("contexto_mensagens"):
             partes.append(self._contexto(chat, mid, wa["contexto_mensagens"]))
         if any(partes):
             msg["contexto"] = "\n\n".join(p for p in partes if p)
