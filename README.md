@@ -163,6 +163,12 @@ Pombo manda o arquivo no chat. Bot com `permissoes: "lista"` (e qualquer pedido 
 da pasta dele ou dos anexos que recebeu: quem manda é o Pombo, então a trava de leitura do Claude não valeria ali.
 Nesse modo, o bot também ganha sozinho a leitura dos anexos que chegam (fotos e arquivos ficam fora da pasta dele).
 
+**Pedido demorado:** o Claude é orientado a responder o rápido numa mensagem só e, no demorado (gerar imagem, pesquisa
+longa), mandar antes um aviso curto ("Pedi a um subagente para gerar a imagem; quando ele voltar eu te mando") e
+delegar o trabalho pesado a um subagente. O aviso é uma linha `AVISO: ...` que o Pombo manda na hora, citando o seu
+pedido, enquanto ele continua trabalhando; a resposta final também cita o pedido. No máximo `avisos_max` (3) por pedido,
+com `avisos_intervalo_s` (20 s) entre eles; `avisos_max=0` desliga.
+
 A conversa recomeça sozinha depois de 6 horas parada (ajustável). O que o bot deve saber sempre vai no `CLAUDE.md` da
 pasta dele, como em qualquer sessão do Claude Code, ou no campo **Instruções** do painel.
 

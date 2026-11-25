@@ -83,6 +83,7 @@ comando, que valida antes de gravar.
 | `env` | variáveis só deste bot, ex. `{"CLAUDE_CONFIG_DIR": "~/.claude-trabalho"}` para outro login do Claude |
 | `nova_sessao_apos_horas` | conversa parada por mais que isso começa do zero |
 | `tempo_maximo_min` | limite por pedido |
+| `avisos_max`, `avisos_intervalo_s` | pedido demorado: o agente manda avisos curtos no meio do trabalho (linha `AVISO: ...`, enviada na hora citando o pedido; o Pombo orienta a delegar o pesado a um subagente e dizer isso). No máximo `avisos_max` (padrão 3, `0` desliga) por pedido, com `avisos_intervalo_s` (padrão 20) entre eles; os de mais vão só para o log. Responder a um aviso continua aquela conversa |
 | `ignorar_triviais` | `true` (padrão): texto de até 3 caracteres (`.`, `ok`, `👍`) ou só um anexo sem legenda não é respondido; vai como contexto do próximo pedido da mesma pessoa naquela conversa, em até 10 min (o anexo vai pelo caminho; um `.` citando uma mensagem faz o próximo pedido continuar a conversa dela). Áudio, comandos e chamar pelo gatilho (`pombo, oi`) sempre valem |
 | `transcricao_cmd` | comando para transcrever áudio; `{arquivo}` vira o caminho; deve imprimir o texto (ou JSON com `text`) |
 | `token_keychain` | no Mac, nome do serviço no Keychain onde está o token |

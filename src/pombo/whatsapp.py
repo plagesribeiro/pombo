@@ -1111,6 +1111,13 @@ class CanalWhatsApp:
     # ---- mandar
 
     def responder(self, chat, texto, responder_a=None, silencioso=False):
+        return self._enviar(chat, texto, responder_a, concluir=True)
+
+    def intermediaria(self, chat, texto, responder_a=None):
+        """Um aviso no meio do trabalho: cita o pedido, mas a reação de "trabalhando" continua."""
+        return self._enviar(chat, texto, responder_a, concluir=False)
+
+    def _enviar(self, chat, texto, responder_a, concluir):
         prefixo = self.cfg().get("prefixo") or ""
         ids = []
         for i, p in enumerate(pedacos(texto, 3500)):
@@ -1124,7 +1131,7 @@ class CanalWhatsApp:
                 ids.append(mid)
                 if a_si and self.wa.ultimo_destino.endswith("@lid"):
                     self.meus_jids.add(self.wa.ultimo_destino)
-                if i == 0 and responder_a:
+                if i == 0 and responder_a and concluir:
                     self._concluir(responder_a)
             finally:
                 with self._trava:

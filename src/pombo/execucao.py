@@ -36,6 +36,9 @@ ROTINA = """[Rotina agendada "{nome}" ({quando})]
 
 O que você responder no fim vai para {usuario} no {canal}.{silencio}"""
 
+AVISOS = """
+Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (gerar imagem, pesquisa longa, muitas etapas): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Pedi a um subagente para gerar a imagem; quando ele terminar eu te mando.") e, de preferência, delegue o trabalho pesado a um subagente (ferramenta Agent), dizendo isso no aviso. Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso."""
+
 SILENCIO = " Se não houver nada de novo para contar, responda só SEM_NOVIDADE (nada mais), e nada será enviado."
 
 AJUDA = """🤖 **{bot}** · {maquina}
@@ -126,6 +129,57 @@ def eh_trivial(m):
     if m.get("audio") or m.get("so_chamou") or m.get("chamou"):
         return False
     return len((m.get("texto") or "").strip()) <= TRIVIAL_MAX
+
+
+# ---------------------------------------------------------------- avisos no meio do trabalho ("AVISO: ...")
+
+LINHA_AVISO = re.compile(r"(?m)^[ \t>*_]*AVISO[*_]*:[*_]*[ \t]*(\S.*?)[ \t*_]*$")
+
+
+def achar_avisos(texto):
+    return [a.strip() for a in LINHA_AVISO.findall(texto or "") if a.strip()]
+
+
+def tirar_avisos(texto, enviados):
+    """Na resposta final: o aviso que já foi mandado sai; o que não foi (passou do limite) fica, sem o "AVISO:"."""
+    def troca(m):
+        return "" if m.group(1).strip() in enviados else m.group(1).strip()
+    return re.sub(r"\n{3,}", "\n\n", LINHA_AVISO.sub(troca, texto or "")).strip()
+
+
+class Avisos:
+    """Manda os avisos do agente no meio do trabalho, citando a mensagem do pedido: no máximo avisos_max por pedido e
+    um a cada avisos_intervalo_s (os de mais vão para o log). Responder a um aviso continua a conversa do pedido."""
+
+    def __init__(self, runner, chat, mid):
+        self.r, self.chat, self.mid = runner, chat, mid
+        self.enviados, self.ultimo = [], 0.0
+        self.ao_enviar = None  # chamado depois do primeiro aviso (o pedido "solta" a conversa: veja _escolher)
+
+    def __call__(self, texto, sessao=None):
+        cfg = self.r.cfg
+        if texto in self.enviados:
+            return
+        if len(self.enviados) >= cfg.get("avisos_max", 0):
+            self.r.log(f"aviso descartado (passou de {cfg.get('avisos_max', 0)} por pedido): {texto[:80]!r}")
+            return
+        if self.enviados and time.time() - self.ultimo < cfg.get("avisos_intervalo_s", 0):
+            self.r.log(f"aviso descartado (menos de {cfg.get('avisos_intervalo_s')} s depois do anterior): {texto[:80]!r}")
+            return
+        canal = self.r.canal
+        enviar = getattr(canal, "intermediaria", None) or canal.responder
+        try:
+            ids = enviar(self.chat, texto, self.mid) or []
+        except Exception as e:
+            self.r.log(f"aviso não foi: {e}")
+            return
+        self.enviados.append(texto)
+        self.ultimo = time.time()
+        self.r.log(f"aviso mandado ({len(self.enviados)}/{cfg.get('avisos_max')}): {texto[:80]!r}")
+        if sessao:
+            self.r.guardar_mensagens(self.chat, ids, sessao)
+        if self.ao_enviar:
+            self.ao_enviar()
 
 
 # ---------------------------------------------------------------- andamento ("Recebi!", "Lendo...")
@@ -408,13 +462,16 @@ class BotRunner:
         arq = config.resolver(cfg, cfg.get("instrucoes_arquivo"))
         if arq and os.path.isfile(arq):  # lido a cada pedido: dá para editar sem reiniciar
             extra += f"\n\nInstruções do arquivo {arq}:\n" + config.ler_texto(arq).strip()
+        if cfg.get("avisos_max"):
+            extra = AVISOS.format(usuario=usuario, n=cfg["avisos_max"], intervalo=cfg["avisos_intervalo_s"]) + extra
         return SISTEMA.format(usuario=usuario, Usuario=usuario[:1].upper() + usuario[1:], bot=cfg["nome"],
                               canal=self.canal.nome, formato=self.canal.formato,
                               maquina=self.geral["nome_maquina"], pasta=config.pasta_do_bot(cfg), id=self.id,
                               cli=cli_texto(), extra=extra)
 
-    def rodar_agente(self, prompt, sessao, andamento):
-        """Roda o agente. Devolve (resposta, sessao_nova, erro, info)."""
+    def rodar_agente(self, prompt, sessao, andamento, avisar=None):
+        """Roda o agente. Devolve (resposta, sessao_nova, erro, info). avisar(texto, sessao): chamado a cada linha
+        "AVISO: ..." que o agente escreve no meio do trabalho (os subagentes não contam)."""
         cfg = self.cfg
         pasta = config.pasta_do_bot(cfg)
         if not os.path.isdir(pasta):
@@ -437,12 +494,17 @@ class BotRunner:
                         continue
                     nova = d.get("session_id") or nova
                     if d.get("type") == "assistant":
+                        do_agente = not d.get("parent_tool_use_id")  # o resto é de um subagente
                         for c in (d.get("message") or {}).get("content", []):
                             if c.get("type") == "tool_use":
                                 andamento.mostrar(descrever(c.get("name", ""), c.get("input") or {}))
                             elif c.get("type") == "text" and c.get("text", "").strip():
-                                ultimo_texto = c["text"].strip()
-                                andamento.mostrar("💭 " + ultimo_texto.splitlines()[0][:200])
+                                if do_agente:
+                                    ultimo_texto = c["text"].strip()
+                                    if avisar:
+                                        for aviso in achar_avisos(ultimo_texto):
+                                            avisar(aviso, nova)
+                                andamento.mostrar("💭 " + c["text"].strip().splitlines()[0][:200])
                     elif d.get("type") == "result":
                         resultado = d.get("result") or ultimo_texto
                         info["custo_usd"] = d.get("total_cost_usd")
@@ -563,17 +625,23 @@ class BotRunner:
                                           f"{canal.limite_arquivo // 1_000_000} MB).")
             except Exception as e:
                 canal.responder(chat, f"Falhou o envio de `{os.path.basename(a)}`: {e}")
-        if sessao:
-            def guardar(d):
-                mapa = d.setdefault("mensagens", {})
-                for i in ids:
-                    if i:
-                        mapa[f"{chat}:{i}"] = sessao
-                if len(mapa) > 500:
-                    for k in list(mapa)[:-500]:
-                        mapa.pop(k)
-            self.estado.atualizar(guardar)
+        self.guardar_mensagens(chat, ids, sessao)
         return texto, len(arquivos)
+
+    def guardar_mensagens(self, chat, ids, sessao):
+        """Responder (citar) uma destas mensagens continua a conversa `sessao`."""
+        if not sessao:
+            return
+
+        def guardar(d):
+            mapa = d.setdefault("mensagens", {})
+            for i in ids:
+                if i:
+                    mapa[f"{chat}:{i}"] = sessao
+            if len(mapa) > 500:
+                for k in list(mapa)[:-500]:
+                    mapa.pop(k)
+        self.estado.atualizar(guardar)
 
     def registrar(self, inicio, tipo, pedido, resposta, erro, info, sessao, rotina=None):
         registro.registrar_execucao(self.id, {
@@ -681,16 +749,23 @@ class BotRunner:
             self.atual = "pedido: " + (texto or "anexo")[:60]
             andamento.mostrar("🧠 Pensando…")
             self.log(f"pedido de {chat}: {prompt[:200]!r} (conversa {sessao or 'nova'})")
-            resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento)
+            avisos = Avisos(self, chat, mid)
+            resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento, avisar=avisos)
             if erro and sessao and not resultado:
                 self.log(f"falha retomando a conversa ({erro}); tentando conversa nova")
-                resultado, nova, erro, info = self.rodar_agente(prompt, None, andamento)
+                resultado, nova, erro, info = self.rodar_agente(prompt, None, andamento, avisar=avisos)
             deu_erro = bool(erro and not resultado)
             self.estado.atualizar(lambda d: d.setdefault("sessoes", {}).__setitem__(
                 str(chat), {"id": nova, "ultima": time.time()}))
         finally:
             andamento.fim(erro=deu_erro)
         resultado = self.pedido_de_acesso(m, texto or transcrito or "", resultado)
+        resultado = tirar_avisos(resultado, avisos.enviados)
+        if not resultado and avisos.enviados and not erro:
+            # a última coisa que o agente escreveu foi um aviso, que já foi: nada mais a mandar
+            self.registrar(inicio, "mensagem", prompt, "(só avisos)", erro, info, nova)
+            self.log(f"respondido só com {len(avisos.enviados)} aviso(s)")
+            return
         enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid, restrito=bool(m.get("convidado")))
         self.registrar(inicio, "mensagem", prompt, enviado, erro, info, nova)
         self.log(f"respondido ({len(enviado)} caracteres, {n_arq} arquivos)" + (f"; erro: {erro}" if erro else ""))
@@ -725,6 +800,7 @@ class BotRunner:
             d.setdefault("rotinas", {}).setdefault(rid, {}).update(
                 {"sessao": nova, "ultima_execucao": dt.datetime.now().strftime("%Y-%m-%d %H:%M"), "ok": not erro})
         self.estado.atualizar(guardar)
+        resultado = tirar_avisos(resultado, [])  # numa rotina, um "AVISO:" vira texto normal da resposta
         if r["silenciosa"] and not erro and (resultado or "").strip().upper().startswith("SEM_NOVIDADE"):
             self.log(f'rotina "{r["nome"]}": sem novidade, nada enviado')
             self.registrar(inicio, "rotina", r["prompt"], "SEM_NOVIDADE (nada enviado)", None, info, nova, rid)

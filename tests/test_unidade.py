@@ -283,6 +283,73 @@ class Triviais(unittest.TestCase):
         self.assertEqual(r.fila.get_nowait()[1]["id"], 8)
 
 
+def claude_falso(eventos, espera=0.0):
+    """Um `claude` de mentira que imprime estes eventos do stream-json (com uma pausa antes de cada um)."""
+    arq = os.path.join(tempfile.mkdtemp(prefix="claude-falso-"), "claude")
+    with open(arq, "w") as f:
+        f.write("#!" + sys.executable + "\nimport json, sys, time\nsys.stdin.read()\n"
+                f"for e in {eventos!r}:\n    time.sleep({espera})\n    print(json.dumps(e), flush=True)\n")
+    os.chmod(arq, 0o755)
+    return arq
+
+
+def texto_do_agente(t, sub=None):
+    return {"type": "assistant", "parent_tool_use_id": sub, "message": {"content": [{"type": "text", "text": t}]}}
+
+
+class Avisos(unittest.TestCase):
+    """O agente manda avisos curtos no meio do trabalho (linha "AVISO: ..."), com limite."""
+
+    def runner(self, eventos, **kw):
+        from pombo import execucao
+        cfg = config.validar_bot({"pasta": tempfile.mkdtemp(), "usuarios_permitidos": [7], **kw})
+        geral = {**config.carregar_geral(), "claude": claude_falso(eventos)}
+        return execucao.BotRunner("avisos" + str(len(eventos)), cfg, geral, "t")
+
+    def test_avisos_com_limite_e_citando_o_pedido(self):
+        from unittest import mock
+        from pombo import execucao
+        eventos = [{"type": "system", "subtype": "init", "session_id": "S1"},
+                   texto_do_agente("Vou ver.\nAVISO: Pedi a um subagente para gerar a imagem; já te mando."),
+                   texto_do_agente("AVISO: isto é do subagente", sub="toolu_1"),  # subagente: não conta
+                   texto_do_agente("AVISO: segundo aviso, cedo demais"),  # menos de 20 s depois do primeiro
+                   {"type": "result", "session_id": "S1", "result":
+                    "AVISO: Pedi a um subagente para gerar a imagem; já te mando.\nPronto, aqui está a imagem."}]
+        r = self.runner(eventos)
+        self.assertIn("AVISO:", r.sistema())
+        self.assertIn("subagente", r.sistema())
+        enviados = []
+        with mock.patch.object(r.canal, "responder", side_effect=lambda c, t, a=None, **k: enviados.append((t, a)) or [len(enviados)]), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()):
+            r.processar_mensagem({"chat": 7, "id": 99, "de": 7, "texto": "gera uma imagem de um pombo"})
+        self.assertEqual(enviados, [("Pedi a um subagente para gerar a imagem; já te mando.", 99),
+                                    ("Pronto, aqui está a imagem.", 99)])  # os dois citam o pedido
+        self.assertEqual(r.estado.ler()["mensagens"].get("7:1"), "S1")  # responder ao aviso continua a conversa
+
+    def test_no_maximo_avisos_max(self):
+        from unittest import mock
+        from pombo import execucao
+        eventos = [{"type": "system", "subtype": "init", "session_id": "S2"}] + \
+            [texto_do_agente(f"AVISO: passo {i}") for i in range(5)] + [{"type": "result", "result": "Fim."}]
+        r = self.runner(eventos, avisos_max=3, avisos_intervalo_s=0)
+        enviados = []
+        with mock.patch.object(r.canal, "responder", side_effect=lambda c, t, a=None, **k: enviados.append(t) or []), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()):
+            r.processar_mensagem({"chat": 7, "id": 1, "de": 7, "texto": "faz tudo"})
+        self.assertEqual(enviados, ["passo 0", "passo 1", "passo 2", "Fim."])
+        # desligado: nada de aviso nem instrução
+        r.cfg["avisos_max"] = 0
+        self.assertNotIn("AVISO:", r.sistema())
+        with self.assertRaises(config.ErroConfig):
+            config.validar_bot({"avisos_max": -1})
+
+    def test_tirar_avisos(self):
+        from pombo import execucao
+        self.assertEqual(execucao.tirar_avisos("AVISO: já foi\nResposta", ["já foi"]), "Resposta")
+        self.assertEqual(execucao.tirar_avisos("**AVISO:** não foi\nResposta", []), "não foi\nResposta")
+        self.assertEqual(execucao.achar_avisos("Aviso: minúsculo não vale\nAVISO: vale"), ["vale"])
+
+
 class Atualizar(unittest.TestCase):
     def setUp(self):
         from pombo import atualizar

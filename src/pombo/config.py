@@ -74,6 +74,9 @@ BOT_PADRAO = {
     # texto de até 3 caracteres (".", "ok") ou só um anexo sem legenda não é respondido: vai como contexto do próximo
     # pedido da mesma pessoa (em até 10 min). Áudio e chamar pelo gatilho ("pombo, oi") sempre valem
     "ignorar_triviais": True,
+    # pedido demorado: o agente pode mandar avisos curtos no meio do trabalho (linha "AVISO: ..."), citando o pedido
+    "avisos_max": 3,                # por pedido (0 = desligado)
+    "avisos_intervalo_s": 20,       # tempo mínimo entre dois avisos
     "transcricao_cmd": [],
     "token_keychain": "",
     "whatsapp": {},
@@ -323,6 +326,15 @@ def validar_bot(cfg):
                 cfg[campo] = int(cfg[campo])
         except (TypeError, ValueError):
             raise ErroConfig(f"{campo} precisa ser um número maior que zero")
+    for campo, minimo, maximo in (("avisos_max", 0, 10), ("avisos_intervalo_s", 0, 3600)):
+        try:
+            if isinstance(cfg[campo], bool):
+                raise ValueError
+            cfg[campo] = int(cfg[campo])
+            if not minimo <= cfg[campo] <= maximo:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ErroConfig(f"{campo} precisa ser um número inteiro de {minimo} a {maximo}")
     if not str(cfg["pasta"]).strip():
         raise ErroConfig("pasta não pode ficar vazia")
     ids = set()
