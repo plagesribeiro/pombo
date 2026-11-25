@@ -90,7 +90,8 @@ WHATSAPP_PADRAO = {
     "contexto_mensagens": 10,       # fora da conversa "eu": quantas mensagens anteriores vão junto, como contexto
     "intervalo_s": 1,               # de quanto em quanto tempo olha se chegou mensagem
     "espaco_entre_envios": "1s-3s",  # pausa entre envios (--send-spacing do wacli); vazio = sem pausa
-    "reacoes": "simples",           # na sua mensagem: "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"
+    "reacoes": "simples",           # na sua mensagem, enquanto trabalha: "simples" (👀), "etapas" (👀 🎧 🧠 🛠️) ou
+                                    # "nenhuma"; quando a resposta sai, a reação some (deu erro: fica ⚠️)
     "qualquer_pessoa": False,       # nos grupos deste bot, qualquer pessoa que marcar o bot (ou usar o gatilho) é atendida
     "limite_por_pessoa_dia": 0,     # quem não está liberado: até quantas mensagens por dia são respondidas (0 = sem limite)
 }
@@ -361,7 +362,7 @@ def validar_whatsapp(wa, usuarios):
         raise ErroConfig('whatsapp.espaco_entre_envios fica assim: "2s", "500ms" ou "1s-3s" (vazio = sem pausa)')
     wa["espaco_entre_envios"] = wa["espaco_entre_envios"].strip()
     if wa["reacoes"] not in ("simples", "etapas", "nenhuma"):
-        raise ErroConfig('whatsapp.reacoes precisa ser "simples" (👀 e ✅), "etapas" (👀 🎧 🧠 🛠️ ✅) ou "nenhuma"')
+        raise ErroConfig('whatsapp.reacoes precisa ser "simples" (👀), "etapas" (👀 🎧 🧠 🛠️) ou "nenhuma"')
     if wa["conta"] and not re.match(r"^[A-Za-z0-9_.-]+$", wa["conta"]):
         raise ErroConfig("whatsapp.conta é o nome de uma conta do wacli (letras, números, ponto, hífen)")
     if wa["conta"] and wa["pasta_dados"]:

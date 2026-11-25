@@ -7,7 +7,8 @@ O Pombo só chama o programa `wacli`, sem dependência nova:
 - lê o diário de mudanças (`messages changes --since CHECKPOINT`), que faz o papel do offset do Telegram: se o Pombo
   reiniciar, nenhuma mensagem se perde;
 - busca cada mensagem nova (`messages show`) e decide se é para o bot: conversa liberada, quem mandou e gatilho;
-- responde com `send text` / `send file` / `send voice` e marca a mensagem com uma reação (👀 e, no fim, ✅).
+- responde com `send text` / `send file` / `send voice` e marca a mensagem com uma reação (👀) enquanto trabalha,
+  tirada quando a resposta sai.
 
 Dois jeitos de usar (whatsapp.meu_numero):
 - True (padrão): o WhatsApp pareado é o seu número. Você fala com o bot na conversa com você mesmo ("eu") ou chama
@@ -899,17 +900,20 @@ def etapa_de(texto):
 
 
 class Reacao:
-    """No WhatsApp não dá para editar um "Recebi!" sem encher a conversa: a reação na mensagem mostra a etapa.
-    👀 recebeu → 🎧 ouvindo o áudio → 🧠 pensando → 🛠️ usando ferramentas → ✅ respondeu.
+    """No WhatsApp não dá para editar um "Recebi!" sem encher a conversa: a reação na mensagem mostra que o bot está
+    trabalhando. 👀 recebeu (→ 🎧 ouvindo o áudio → 🧠 pensando → 🛠️ usando ferramentas, com reacoes=etapas) e, quando
+    a resposta sai, a reação some (reagir com "" tira a reação). Deu erro: fica um ⚠️.
     Uma thread manda as trocas (o agente não espera) e segura no máximo uma troca a cada INTERVALO segundos."""
 
     INTERVALO = 3
 
-    def __init__(self, canal, chat, mid, remetente=None, etapas=False):
+    def __init__(self, canal, chat, mid, remetente=None, etapas=False, ja_reagida=""):
         self.canal, self.chat, self.mid, self.remetente = canal, chat, mid, remetente
-        self.etapas = etapas  # False: só 👀 e ✅ (cada troca de reação também chega no celular do dono do número)
+        self.etapas = etapas  # False: só o 👀 (cada troca de reação também chega no celular do dono do número)
+        self.erro = False
         self._cond = threading.Condition()
-        self._desejada, self._enviada, self._fechar, self._ultima = "👀", None, False, 0.0
+        # ja_reagida: a mensagem esperou na fila com um ⏳, que também precisa sair no fim
+        self._desejada, self._enviada, self._fechar, self._ultima = "👀", (ja_reagida or None), False, 0.0
         self._thread = threading.Thread(target=self._laco, daemon=True)
         self._thread.start()
 
@@ -918,8 +922,8 @@ class Reacao:
             with self._cond:
                 while self._desejada == self._enviada and not self._fechar:
                     self._cond.wait()
-                if self._desejada == self._enviada:
-                    return
+                if self._desejada == self._enviada or (self._fechar and not self._desejada and self._enviada is None):
+                    return  # nada a trocar (ou a tirar: nenhuma reação chegou a sair)
                 emoji, final = self._desejada, self._fechar
             espera = self._ultima + self.INTERVALO - time.time()
             if espera > 0 and not final:
@@ -943,22 +947,23 @@ class Reacao:
                     self._desejada = etapa
                     self._cond.notify()
 
-    def fim(self):
-        # o ✅ vai depois da resposta (CanalWhatsApp.responder chama concluir); antes, parecia pronto sem estar
+    def fim(self, erro=False):
+        # a reação sai depois da resposta (CanalWhatsApp.responder chama concluir); antes, parecia pronto sem estar
+        self.erro = self.erro or bool(erro)
         self.canal._a_concluir[self.mid] = self
 
     def concluir(self):
         with self._cond:
-            self._desejada, self._fechar = "✅", True
+            self._desejada, self._fechar = ("⚠️" if self.erro else ""), True
             self._cond.notify()
-        self._thread.join(60)  # as trocas saem em ordem, e o ✅ é a última (a que fica)
+        self._thread.join(60)  # as trocas saem em ordem, e a última (tirar a reação, ou o ⚠️) é a que fica
 
 
 class SemReacao:
     def mostrar(self, texto, forcar=False):
         pass
 
-    def fim(self):
+    def fim(self, erro=False):
         pass
 
 
@@ -982,7 +987,8 @@ class CanalWhatsApp:
         self._pendentes = set()  # textos sendo mandados agora (o diário pode mostrar antes de o envio voltar)
         self._midia_em_envio = {}  # conversa -> quantos arquivos/áudios o bot está mandando nela agora
         self._grupos_meus = {}     # grupo -> (quando conferiu, só você está nele?)
-        self._a_concluir = {}      # mensagem -> Reacao que espera a resposta sair para virar ✅
+        self._a_concluir = {}      # mensagem -> Reacao que espera a resposta sair para tirar a reação
+        self._na_fila = {}         # mensagem -> "⏳" (esperou na fila: a reação sai junto no fim)
         self._reivindicadas = (0.0, set())  # conversas que outros bots liberaram pelo nome
         self._outros = (0.0, [])            # (quando, [(número de bot deste computador, bots ligados dele)])
         self.aviso_padrao = ""              # outro computador também é a pasta padrão deste número
@@ -1128,12 +1134,20 @@ class CanalWhatsApp:
         if reacao:
             reacao.concluir()
 
+    def concluir(self, mid):
+        """Fim do pedido (mesmo sem resposta, ou com erro antes dela): tira a reação que ficou esperando."""
+        if mid:
+            self._concluir(mid)
+
     def na_fila(self, chat, mid):
         """Mensagem esperando o pedido anterior: um ⏳ nela em vez de um texto. Devolve False para cair no aviso."""
         if not mid or (self.cfg().get("reacoes") or "simples") == "nenhuma":
             return False
         try:
             self.anotar_enviada(self.wa.reagir(chat, mid, "⏳", self._remetentes.get(mid)))
+            self._na_fila[mid] = "⏳"
+            for k in list(self._na_fila)[:-200]:
+                self._na_fila.pop(k, None)
             return True
         except Exception as e:
             self.r.log(f"não deu para marcar a mensagem na fila ({e})")
@@ -1166,7 +1180,8 @@ class CanalWhatsApp:
         modo = self.cfg().get("reacoes") or "simples"
         if not responder_a or modo == "nenhuma":
             return SemReacao()  # rotinas: não há mensagem para marcar
-        return Reacao(self, chat, responder_a, self._remetentes.get(responder_a), etapas=modo == "etapas")
+        return Reacao(self, chat, responder_a, self._remetentes.get(responder_a), etapas=modo == "etapas",
+                      ja_reagida=self._na_fila.pop(responder_a, ""))
 
     def baixar(self, anexo, pasta):
         chat, mid = anexo

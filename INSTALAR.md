@@ -157,7 +157,7 @@ ou um número só do bot.
    - num número só do bot: liberar quem fala com ele (`pombo bots liberar zap +55DDDNUMERO`) e mandar "oi" para o
      número do bot.
 
-   A mensagem ganha 👀, a resposta chega começando com 🐦 e a reação vira ✅.
+   A mensagem ganha 👀, a resposta chega começando com 🐦 e a reação some.
 6. Outras pastas no mesmo número: um bot por pasta, cada um com um grupo só dela
    (`pombo bots criar mestrado-zap --pasta ~/mestrado --canal whatsapp --grupo "🎓 Mestrado"`). No grupo, é só
    escrever, sem gatilho.

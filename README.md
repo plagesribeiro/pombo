@@ -201,9 +201,9 @@ depois. Para mais: `--historico 30` (dias) ou `--historico 0` (o que o celular q
 `pombo whatsapp parear --de-novo`.
 
 Depois, na conversa com você mesmo, mande **"pombo, o que tem na minha agenda hoje?"**. A sua mensagem ganha 👀, a
-resposta chega começando com 🐦 e a reação vira ✅. Com `whatsapp.reacoes=etapas`, a reação mostra também o que ele está
-fazendo (🎧 ouvindo, 🧠 pensando, 🛠️ usando ferramentas); cada troca chega no seu celular, por isso o padrão é só 👀 e
-✅ (`nenhuma` desliga).
+resposta chega começando com 🐦 e a reação some (se der erro, fica um ⚠️). Com `whatsapp.reacoes=etapas`, a reação
+mostra também o que ele está fazendo (🎧 ouvindo, 🧠 pensando, 🛠️ usando ferramentas); cada troca chega no seu celular,
+por isso o padrão é só o 👀 (`nenhuma` desliga).
 
 - **Gatilho:** por padrão, o bot só responde ao que começa com `pombo` (ou `@pombo`, `Pombo:`), e a conversa com você
   mesmo continua servindo para anotações. Para ele responder tudo ali: `pombo bots editar zap whatsapp.gatilho_sempre=false`.

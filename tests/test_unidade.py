@@ -477,10 +477,10 @@ class CanalWhatsApp(unittest.TestCase):
                 __import__("time").sleep(0.4)
             andamento.fim()
             emojis = [x["emoji"] for x in self.f.reacoes(self.store)]
-            self.assertNotIn("✅", emojis)  # o ✅ espera a resposta sair
+            self.assertNotIn("", emojis)  # tirar a reação espera a resposta sair
             self.c.responder(self.eu, "pronto", responder_a=m["id"])
         emojis = [x["emoji"] for x in self.f.reacoes(self.store)]
-        self.assertEqual((emojis[0], emojis[-1]), ("👀", "✅"))
+        self.assertEqual((emojis[0], emojis[-1]), ("👀", ""))  # "" tira a reação
         self.assertTrue({"🎧", "🧠", "🛠️"} <= set(emojis), emojis)
         # sem pausa de teste: as trocas rápidas viram uma só (no máximo uma a cada 3 s)
         r2 = self.c.andamento(self.eu, m["id"])
@@ -660,7 +660,22 @@ class CanalWhatsApp(unittest.TestCase):
                 r.mostrar(etapa)
             r.fim()
             self.c.responder(self.eu, "oi!", responder_a=m["id"])
-        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀", "✅"])
+        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store)], ["👀", ""])  # some quando responde
+        # esperou na fila (⏳) e deu erro: fica um ⚠️
+        m2 = self.chegar(self.eu, "pombo, outra coisa")
+        self.assertTrue(self.c.na_fila(self.eu, m2["id"]))
+        with mock.patch("pombo.whatsapp.Reacao.INTERVALO", 0):
+            r = self.c.andamento(self.eu, m2["id"])
+            r.fim(erro=True)
+            self.c.responder(self.eu, "😵 Não consegui", responder_a=m2["id"])
+        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store) if x["alvo"] == m2["id"]], ["⏳", "👀", "⚠️"])
+        # tirou antes de o 👀 sair: o ⏳ também sai; e sem resposta nenhuma, concluir() tira a reação
+        m3 = self.chegar(self.eu, "pombo, mais uma")
+        self.c.na_fila(self.eu, m3["id"])
+        r = self.c.andamento(self.eu, m3["id"])
+        r.fim()
+        self.c.concluir(m3["id"])
+        self.assertEqual([x["emoji"] for x in self.f.reacoes(self.store) if x["alvo"] == m3["id"]][-1], "")
         self.r.cfg["whatsapp"]["reacoes"] = "nenhuma"
         self.assertIsInstance(self.c.andamento(self.eu, m["id"]), SemReacao)
         with self.assertRaises(config.ErroConfig):

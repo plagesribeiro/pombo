@@ -136,8 +136,8 @@ Dois jeitos (`whatsapp.meu_numero`):
   transcrição; áudio de mais de 10 s, com o `ffmpeg` instalado, tem só os primeiros 6 s transcritos para conferir). O
   áudio dos outros nunca chama o bot.
 - Responder (citar) uma mensagem do bot continua a conversa e dispensa o gatilho.
-- No WhatsApp, o andamento é uma reação na mensagem (`whatsapp.reacoes`): `simples` (padrão) é 👀 ao receber e ✅
-  quando a resposta sai; `etapas` mostra também 🎧 ouvindo, 🧠 pensando e 🛠️ ferramentas (no máximo uma troca a cada
+- No WhatsApp, o andamento é uma reação na mensagem (`whatsapp.reacoes`): `simples` (padrão) é 👀 enquanto trabalha
+  (⏳ se esperou na fila), e a reação some quando a resposta sai (deu erro: fica ⚠️); `etapas` mostra também 🎧 ouvindo, 🧠 pensando e 🛠️ ferramentas (no máximo uma troca a cada
   3 s; cada troca também chega no celular do dono do número); `nenhuma` desliga.
 - Nas conversas dos outros, o agente é avisado de que a resposta aparece para todos daquela conversa.
 - **O mesmo número em vários computadores:** cada computador pareia o número (`pombo whatsapp parear --numero

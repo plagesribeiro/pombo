@@ -121,7 +121,7 @@ class SemAndamento:
     def mostrar(self, texto, forcar=False):
         pass
 
-    def fim(self):
+    def fim(self, erro=False):
         pass
 
 
@@ -345,6 +345,13 @@ class BotRunner:
                     except Exception:
                         pass
             finally:
+                if item[0] == "mensagem":
+                    concluir = getattr(self.canal, "concluir", None)  # a reação que ficou (erro antes da resposta)
+                    if concluir:
+                        try:
+                            concluir(item[1].get("id"))
+                        except Exception:
+                            pass
                 self.ocupado = False
                 self.atual = ""
 
@@ -558,6 +565,7 @@ class BotRunner:
                 return
             transcrito = resto
         andamento = canal.andamento(chat, mid)
+        deu_erro = True  # uma exceção no meio também é erro
         try:
             audio = m.get("audio")
             if transcrito is not None:
@@ -584,6 +592,7 @@ class BotRunner:
             if m.get("contexto"):
                 extras.append(m["contexto"])
             if not partes and not extras:
+                deu_erro = False
                 andamento.fim()
                 canal.responder(chat, "👋 Tô aqui! Pode mandar." if m.get("so_chamou") else
                                 "Não entendi esse tipo de mensagem. Manda texto, áudio, foto ou arquivo.", mid)
@@ -608,10 +617,11 @@ class BotRunner:
             if erro and sessao and not resultado:
                 self.log(f"falha retomando a conversa ({erro}); tentando conversa nova")
                 resultado, nova, erro, info = self.rodar_agente(prompt, None, andamento)
+            deu_erro = bool(erro and not resultado)
             self.estado.atualizar(lambda d: d.setdefault("sessoes", {}).__setitem__(
                 str(chat), {"id": nova, "ultima": time.time()}))
         finally:
-            andamento.fim()
+            andamento.fim(erro=deu_erro)
         resultado = self.pedido_de_acesso(m, texto or transcrito or "", resultado)
         enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid, restrito=bool(m.get("convidado")))
         self.registrar(inicio, "mensagem", prompt, enviado, erro, info, nova)

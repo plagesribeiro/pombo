@@ -202,7 +202,7 @@ class Andamento:
             except Exception:
                 pass
 
-    def fim(self):
+    def fim(self, erro=False):
         self.ativo = False
         if self.mid:
             try:
