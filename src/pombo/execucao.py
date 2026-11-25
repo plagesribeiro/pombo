@@ -661,10 +661,9 @@ class BotRunner:
             self.log(f'rotina "{r["nome"]}": sem novidade, nada enviado')
             self.registrar(inicio, "rotina", r["prompt"], "SEM_NOVIDADE (nada enviado)", None, info, nova, rid)
             return
+        # a conversa da rotina NÃO vira a conversa atual do chat: a próxima mensagem continua a conversa de antes (que
+        # vê o resultado da rotina no histórico); só responder (citar) a mensagem da rotina continua a rotina
         enviado, _ = self.enviar_resultado(chat, resultado, erro, info, nova, cabecalho=f"⏰ **{r['nome']}**\n\n")
-        # a conversa da rotina vira a conversa atual: a próxima mensagem continua dela
-        self.estado.atualizar(lambda d: d.setdefault("sessoes", {}).__setitem__(
-            str(chat), {"id": nova, "ultima": time.time()}))
         self.registrar(inicio, "rotina", r["prompt"], enviado, erro, info, nova, rid)
         self.log(f'rotina "{r["nome"]}" terminou' + (f" com erro: {erro}" if erro else ""))
 

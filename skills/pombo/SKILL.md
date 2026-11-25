@@ -165,7 +165,8 @@ Dois jeitos (`whatsapp.meu_numero`):
 | `silenciosa` | `true`: se não houver novidade, o agente responde `SEM_NOVIDADE` e nada é enviado |
 | `tolerancia_min` | se o computador estava dormindo no horário, ainda roda até X min depois (padrão 90) |
 
-Responder à mensagem de uma rotina no Telegram continua a conversa daquela rodada.
+Responder (citar) a mensagem de uma rotina continua a conversa daquela rodada. Mensagem sem citar continua a conversa
+normal do chat: a rotina não toma o lugar dela.
 
 ## Regras
 

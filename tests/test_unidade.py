@@ -205,6 +205,34 @@ class Motor(unittest.TestCase):
         self.assertTrue(env["POMBO_BOT"])  # `pombo atualizar` sabe de qual bot veio o pedido
 
 
+class Conversas(unittest.TestCase):
+    """Qual conversa (sessão do Claude) cada pedido continua."""
+
+    def runner(self, **kw):
+        from pombo import execucao
+        cfg = config.validar_bot({"pasta": "~", "usuarios_permitidos": [7], **kw})
+        return execucao.BotRunner("conv" + str(abs(hash(str(kw))) % 10000), cfg, config.carregar_geral(), "t")
+
+    def test_rotina_nao_toma_a_conversa_do_chat(self):
+        from unittest import mock
+        r = self.runner(rotinas=[{"id": "agenda", "nome": "Agenda", "horarios": ["08:00"], "prompt": "agenda"}])
+        r.estado.atualizar(lambda d: d.update(sessoes={}, mensagens={}))
+        ids = iter(range(100, 200))
+        with mock.patch.object(r.canal, "responder", side_effect=lambda *a, **k: [next(ids)]), \
+                mock.patch.object(r.canal, "andamento", return_value=__import__("pombo.execucao").execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente") as agente:
+            agente.return_value = ("oi", "S-CONVERSA", None, {})
+            r.processar_mensagem({"chat": 7, "id": 1, "de": 7, "texto": "lembra que meu carro é azul"})
+            agente.return_value = ("Agenda: nada", "S-ROTINA", None, {})
+            r.processar_rotina("agenda", manual=True)
+            agente.return_value = ("azul", "S-CONVERSA", None, {})
+            r.processar_mensagem({"chat": 7, "id": 2, "de": 7, "texto": "qual a cor do carro?"})
+            self.assertEqual(agente.call_args[0][1], "S-CONVERSA")  # a mensagem sem citar continua a conversa
+            # citar a mensagem da rotina (id 101) continua a rotina
+            r.processar_mensagem({"chat": 7, "id": 3, "de": 7, "texto": "e amanhã?", "citada": {"id": 101, "texto": "x"}})
+            self.assertEqual(agente.call_args[0][1], "S-ROTINA")
+
+
 class Atualizar(unittest.TestCase):
     def setUp(self):
         from pombo import atualizar
