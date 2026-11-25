@@ -476,7 +476,7 @@ function whatsappHTML(b, c) {
     <details><summary class="det">Mais opções do WhatsApp</summary>
       <div class="grid2">
         <label class="f"><span class="l">Caminho do wacli</span><input type="text" data-w="1" data-c="wacli" value="${esc(w.wacli)}" placeholder="procura sozinho"></label>
-        <label class="f"><span class="l">Mensagens anteriores como contexto (fora da conversa "Você")</span><input type="number" min="0" max="50" data-w="1" data-c="contexto_mensagens" data-t="int" value="${esc(w.contexto_mensagens)}"></label>
+        <label class="f"><span class="l">Mensagens anteriores da conversa como contexto</span><input type="number" min="0" max="50" data-w="1" data-c="contexto_mensagens" data-t="int" value="${esc(w.contexto_mensagens)}"></label>
         <label class="f"><span class="l">Pausa entre envios</span><input type="text" data-w="1" data-c="espaco_entre_envios" value="${esc(w.espaco_entre_envios)}" placeholder="1s-3s"></label>
         <label class="f"><span class="l">Reações na sua mensagem</span><select data-w="1" data-c="reacoes">${[["simples","👀 enquanto trabalha (some quando responde)"],["etapas","👀 🎧 🧠 🛠️ (cada troca chega no seu celular)"],["nenhuma","nenhuma"]].map(([v, t]) => `<option value="${v}" ${(w.reacoes || "simples") === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       </div>

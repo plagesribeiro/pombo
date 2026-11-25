@@ -62,6 +62,7 @@ def cli_texto():
 
 # ---------------------------------------------------------------- áudio: o começo, para conferir o gatilho
 
+CITADA_MAX = 8000         # a mensagem citada vai inteira (até esse tamanho)
 TRECHO_AUDIO_S = 6       # quanto do começo do áudio é transcrito para ver se ele começa com o gatilho
 AUDIO_CURTO_S = 10       # áudio até esse tamanho é transcrito inteiro de uma vez (cortar não economiza)
 
@@ -586,9 +587,15 @@ class BotRunner:
                 extras.append(f"Mandou o arquivo \"{d.get('nome')}\": {canal.baixar(d['anexo'], anexos)} (abra com a ferramenta Read).")
             if texto:
                 partes.append(texto)
+            historico = getattr(canal, "historico", None)
+            if m.get("historico") and historico:
+                h = historico(m)  # na hora de rodar: inclui o que o bot respondeu enquanto esta esperava na fila
+                if h:
+                    extras.append(h)
             citada = m.get("citada") or {}
             if citada.get("texto"):
-                extras.append(f"Está respondendo a esta mensagem: «{citada['texto'][:1500]}»")
+                quem = f" (de {citada['quem']})" if citada.get("quem") else ""
+                extras.append(f"Está respondendo a esta mensagem{quem}: «{citada['texto'][:CITADA_MAX]}»")
             if m.get("contexto"):
                 extras.append(m["contexto"])
             if not partes and not extras:

@@ -239,7 +239,7 @@ def _main(op, pos, store):
         if op.get("id") not in ids:
             _saida(erro="message not found")
         i = ids.index(op["id"])
-        _saida({"messages": da_conversa[max(0, i - int(op.get("before") or 0)):i + 1]})
+        _saida({"messages": da_conversa[max(0, i - int(op.get("before") or 0)):i + 1 + int(op.get("after") or 0)]})
     if cmd == ["send", "text"]:
         para = op.get("to", "")
         if para == eu and not op.get("allow-self"):

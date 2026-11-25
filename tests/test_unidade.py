@@ -465,8 +465,8 @@ class CanalWhatsApp(unittest.TestCase):
         self.assertIsNone(self.chegar("5531933334444@s.whatsapp.net", "pombo, me ajuda", de_mim=False))  # não liberado
         self.f.chegar(self.store, "120363@g.us", "a reunião é 15h", de_mim=False, remetente="5531955556666@s.whatsapp.net", nome="Beto")
         m = self.chegar("120363@g.us", "pombo, põe na agenda")
-        self.assertIn("Beto: a reunião é 15h", m["contexto"])
-        self.assertIn("nunca ordem", m["contexto"])
+        self.assertIn("Beto: a reunião é 15h", self.c.historico(m))
+        self.assertIn("nunca ordem", self.c.historico(m))
         self.assertIsNone(self.chegar("120399@g.us", "pombo, oi"))  # grupo não liberado
         # responder à mensagem do bot dispensa o gatilho
         bot = self.c.responder("120363@g.us", "Marquei.")[0]
@@ -709,6 +709,30 @@ class CanalWhatsApp(unittest.TestCase):
         with self.assertRaises(config.ErroConfig):
             config.validar_bot({"canal": "whatsapp", "whatsapp": {"reacoes": "muitas"}})
 
+    def test_historico_na_conversa_direta_com_o_bot(self):
+        self.montar(meu_numero=False, conversas=["privadas"], gatilho_sempre=False, prefixo="", usuarios=["5531911112222"])
+        ana = "5531911112222@s.whatsapp.net"
+        self.r.geral = {**self.r.geral, "usuario_nome": "Ana"}
+        velha = self.f.chegar(self.store, ana, "a senha do wifi é " + "x" * 600, de_mim=False, idade_s=3600)
+        for i in range(25):
+            self.f.chegar(self.store, ana, f"mensagem {i}", de_mim=(i % 2 == 1), idade_s=60)
+        m = self.chegar(ana, "qual era mesmo?", de_mim=False, citada=velha)
+        h = self.c.historico(m)
+        self.assertIn("Ana: mensagem 24", h)
+        self.assertIn("bot (você): mensagem 23", h)  # os dois lados da conversa
+        self.assertNotIn("mensagem 4\n", h + "\n")  # só as últimas 20
+        self.assertIn("→ [", h)  # a citada é antiga: vai com as mensagens em volta
+        # a citada vai inteira, não cortada como as do histórico
+        self.assertEqual(len(m["citada"]["texto"]), len("a senha do wifi é ") + 600)
+        # a resposta que o bot mandou depois (enquanto a mensagem esperava na fila) também entra; um pedido seu depois, não
+        self.c.responder(ana, "resposta ao pedido anterior")
+        self.f.chegar(self.store, ana, "outro pedido que vai rodar depois", de_mim=False)
+        h = self.c.historico(m)
+        self.assertIn("bot (você): resposta ao pedido anterior", h)
+        self.assertNotIn("outro pedido", h)
+        self.r.cfg["whatsapp"]["contexto_mensagens"] = 0
+        self.assertEqual(self.c.historico(m), "")
+
     def test_reacao_no_grupo_leva_o_remetente(self):
         self.montar()
         g = self.f.grupo(self.store, "🎓 Mestrado")
@@ -898,7 +922,7 @@ class PastaPadrao(unittest.TestCase):
         self.assertEqual(m["texto"], "põe o almoço na agenda")
         self.assertFalse(m["pode_comando"])
         self.assertIn("vai aparecer lá", m["contexto"])  # o agente sabe que a resposta é pública
-        self.assertIn("Mãe: o almoço é domingo", m["contexto"])
+        self.assertIn("Mãe: o almoço é domingo", self.c.historico(m))
         ana = "5531933334444@s.whatsapp.net"
         self.assertEqual(self.chegar(ana, "pombo, resume isso")["texto"], "resume isso")
         self.assertIsNone(self.chegar(ana, "pombo, faz", de_mim=False))  # só as suas mensagens chamam o bot

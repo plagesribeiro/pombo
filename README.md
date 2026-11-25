@@ -209,8 +209,11 @@ por isso o padrão é só o 👀 (`nenhuma` desliga).
   mesmo continua servindo para anotações. Para ele responder tudo ali: `pombo bots editar zap whatsapp.gatilho_sempre=false`.
 - **Em outras conversas:** libere em `whatsapp.conversas` (um número, um grupo `...@g.us`, ou por tipo: `privadas`,
   `grupos`, `todas`) e escreva `pombo, ...` lá. A resposta aparece para todo mundo da conversa (o Claude é avisado
-  disso), e as últimas mensagens dela vão como contexto. Só as suas mensagens acionam o bot, a não ser que você libere
-  outras pessoas.
+  disso). Só as suas mensagens acionam o bot, a não ser que você libere outras pessoas.
+- **Contexto:** em toda conversa (inclusive a com você mesmo e a conversa direta com o número do bot), as últimas
+  `whatsapp.contexto_mensagens` mensagens (padrão 20, as suas, as do bot e as dos outros, cada uma cortada em 400
+  caracteres) vão junto com o pedido. Responder (citar) uma mensagem manda ela inteira e, se for antiga, as mensagens em
+  volta dela.
 - **Pasta padrão:** com `todas`, o bot atende o `pombo, ...` em qualquer conversa ou grupo que não seja de outra pasta
   (a conversa ligada pelo nome a outro bot é dele): `pombo bots editar zap 'whatsapp.conversas=["eu","todas"]'`.
 - **Áudio** vale se começar com o gatilho falado ("Pombo, ..."). Para saber, o Pombo transcreve calado os seus
