@@ -2,8 +2,11 @@
 import json
 import os
 import shutil
+import threading
 
 from . import config
+
+_trava_mcp = threading.Lock()  # dois pedidos do mesmo bot podem começar juntos
 
 
 def comando_claude(cfg, geral, bot_id, sistema, sessao):
@@ -39,7 +42,8 @@ def comando_claude(cfg, geral, bot_id, sistema, sessao):
             cmd += ["--plugin-dir", p]
     if cfg["mcps"] or cfg["so_mcps_do_bot"]:
         arq = config.caminho("mcp", bot_id + ".json")
-        config.gravar_json(arq, {"mcpServers": cfg["mcps"]}, privado=True)
+        with _trava_mcp:
+            config.gravar_json(arq, {"mcpServers": cfg["mcps"]}, privado=True)
         cmd += ["--mcp-config", arq]
         if cfg["so_mcps_do_bot"]:
             cmd += ["--strict-mcp-config"]

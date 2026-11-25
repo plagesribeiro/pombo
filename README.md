@@ -169,6 +169,12 @@ delegar o trabalho pesado a um subagente. O aviso é uma linha `AVISO: ...` que 
 pedido, enquanto ele continua trabalhando; a resposta final também cita o pedido. No máximo `avisos_max` (3) por pedido,
 com `avisos_intervalo_s` (20 s) entre eles; `avisos_max=0` desliga.
 
+**Várias coisas ao mesmo tempo:** o bot roda até `paralelos` pedidos juntos (padrão: 2 no WhatsApp, 1 no Telegram),
+mas nunca dois na mesma conversa do Claude. Responder (citar) uma resposta antiga continua aquela conversa, em
+paralelo com o resto. Uma mensagem sem citar espera o pedido anterior do mesmo chat (com ⏳), a não ser que ele seja
+demorado (já mandou o aviso, ou roda há mais de 90 s): aí ela é atendida numa conversa nova, em paralelo, e a
+resposta do pedido demorado chega depois, citando o pedido.
+
 A conversa recomeça sozinha depois de 6 horas parada (ajustável). O que o bot deve saber sempre vai no `CLAUDE.md` da
 pasta dele, como em qualquer sessão do Claude Code, ou no campo **Instruções** do painel.
 

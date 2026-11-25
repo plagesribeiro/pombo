@@ -350,6 +350,119 @@ class Avisos(unittest.TestCase):
         self.assertEqual(execucao.achar_avisos("Aviso: minúsculo não vale\nAVISO: vale"), ["vale"])
 
 
+class Paralelos(unittest.TestCase):
+    """Pedidos em paralelo, mas nunca dois na mesma conversa (sessão) do Claude."""
+
+    def runner(self, **kw):
+        from pombo import execucao
+        cfg = config.validar_bot({"pasta": "~", "usuarios_permitidos": [7, 8], **kw})
+        r = execucao.BotRunner("par" + str(abs(hash(str(kw))) % 10000), cfg, config.carregar_geral(), "t")
+        r.estado.atualizar(lambda d: d.update(sessoes={"7": {"id": "S-ATUAL", "ultima": __import__("time").time()}},
+                                              mensagens={"7:50": "S-VELHA", "7:60": "S-ATUAL"}))
+        return r
+
+    def msg(self, mid, texto="faz uma coisa aí", citada=None, chat=7):
+        return ("mensagem", {"chat": chat, "id": mid, "de": chat, "texto": texto,
+                             "citada": {"id": citada, "texto": "x"} if citada else {}})
+
+    def escolher(self, r):
+        with r.fila.cond:
+            e = r._escolher()
+            if e:
+                r.rodando[e[0][1]["id"] if e[0][0] == "mensagem" else e[0][1]] = e[1]
+            return e
+
+    def test_padrao_por_canal_e_limite(self):
+        self.assertEqual(self.runner().paralelos(), 1)  # Telegram
+        self.assertEqual(self.runner(paralelos=3).paralelos(), 3)
+        with self.assertRaises(config.ErroConfig):
+            config.validar_bot({"paralelos": 9})
+
+    def test_nunca_a_mesma_sessao_ao_mesmo_tempo(self):
+        r = self.runner(paralelos=3)
+        for item in (self.msg(1), self.msg(2), self.msg(3, citada=50), self.msg(4, citada=60), self.msg(5, chat=8)):
+            r.fila.put(item)
+        ids = []
+        while True:
+            e = self.escolher(r)
+            if not e:
+                break
+            ids.append((e[0][1]["id"], e[1].sessao))
+        # 1 continua a conversa atual; 2 (sem citar, mesmo chat) espera; 3 cita outra conversa e roda junto;
+        # 4 cita uma resposta da conversa atual, que está rodando: espera; e o limite de 3 segura o 5
+        self.assertEqual(ids, [(1, "S-ATUAL"), (3, "S-VELHA")] + [(5, None)])
+        self.assertEqual([i[1]["id"] for i in r.fila.itens], [2, 4])
+        # o 1 terminou: o 2 entra (continua a conversa atual); o 4 (mesma sessão) continua esperando
+        r.rodando.pop(1)
+        r.rodando.pop(5)
+        e = self.escolher(r)
+        self.assertEqual((e[0][1]["id"], e[1].sessao), (2, "S-ATUAL"))
+        self.assertIsNone(self.escolher(r))
+
+    def test_pedido_demorado_solta_a_conversa(self):
+        r = self.runner(paralelos=2)
+        r.fila.put(self.msg(1, "gera uma imagem"))
+        longo = self.escolher(r)[1]
+        r.fila.put(self.msg(2, "e a previsão do tempo?"))
+        self.assertIsNone(self.escolher(r))  # o primeiro ainda não avisou que vai demorar: espera
+        r._soltar(longo)  # mandou um AVISO
+        e = self.escolher(r)
+        self.assertEqual(e[0][1]["id"], 2)
+        self.assertIsNone(e[1].sessao)  # conversa nova, em paralelo (nunca a mesma sessão do demorado)
+        self.assertTrue(e[1].paralela)
+
+    def test_rotina_nao_roda_duas_vezes_junto(self):
+        r = self.runner(paralelos=3, rotinas=[{"id": "a", "nome": "A", "horarios": ["08:00"], "prompt": "x"}])
+        r.fila.put(("rotina", "a", True))
+        r.fila.put(("rotina", "a", True))
+        self.assertTrue(self.escolher(r))
+        self.assertIsNone(self.escolher(r))
+
+    def test_conversa_atual_nao_volta_para_a_do_pedido_demorado(self):
+        from unittest import mock
+        from pombo import execucao
+        r = self.runner(paralelos=2)
+        longo = execucao.Trabalho("mensagem", 7, "S-ATUAL")
+        paralelo = execucao.Trabalho("mensagem", 7, None)
+        longo.antes = paralelo.antes = "S-ATUAL"  # a conversa atual quando os dois começaram
+        with mock.patch.object(r.canal, "responder", return_value=[]), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente", return_value=("ok", "S-NOVA", None, {})):
+            r.processar_mensagem(self.msg(2)[1], paralelo)  # terminou primeiro: vira a conversa atual
+        with mock.patch.object(r.canal, "responder", return_value=[]), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente", return_value=("imagem", "S-ATUAL", None, {})):
+            r.processar_mensagem(self.msg(1)[1], longo)
+        self.assertEqual(r.estado.ler()["sessoes"]["7"]["id"], "S-NOVA")
+
+    def test_trabalhadores_de_verdade(self):
+        """Dois chats ao mesmo tempo, com o serviço de verdade (threads), e /parar só no chat dele."""
+        from unittest import mock
+        import time as t
+        from pombo import execucao
+        r = self.runner(paralelos=2)
+        r.estado.atualizar(lambda d: d.update(sessoes={}))
+        rodando, maximo = [], [0]
+
+        def agente(prompt, sessao, andamento, avisar=None):
+            rodando.append(1)
+            maximo[0] = max(maximo[0], len(rodando))
+            t.sleep(0.5)
+            rodando.pop()
+            return "ok", "S" + prompt[-1], None, {}
+        with mock.patch.object(r.canal, "responder", return_value=[]), mock.patch.object(r.canal, "aviso"), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente", side_effect=agente), mock.patch.object(r.canal, "ouvir"):
+            r.iniciar()
+            r.chegou({"chat": 7, "id": 1, "de": 7, "texto": "pedido A"})
+            r.chegou({"chat": 8, "id": 2, "de": 8, "texto": "pedido B"})
+            fim = t.time() + 5
+            while (r.ocupado or not r.fila.empty() or maximo[0] == 0) and t.time() < fim:
+                t.sleep(0.05)
+            r.parar()
+        self.assertEqual(maximo[0], 2)
+
+
 class Atualizar(unittest.TestCase):
     def setUp(self):
         from pombo import atualizar
@@ -664,7 +777,8 @@ class CanalWhatsApp(unittest.TestCase):
         from unittest import mock
         self.montar()
         del self.r.chegou  # usa o chegou de verdade
-        self.r.ocupado = True
+        from pombo.execucao import Trabalho
+        self.r.rodando['x'] = Trabalho("mensagem", self.eu)  # um pedido rodando nesta conversa
         with mock.patch.object(self.r.canal, "aviso") as aviso, \
                 mock.patch.object(self.r.canal, "na_fila", return_value=True) as na_fila:
             self.r.chegou({"chat": self.eu, "id": "X", "de": "eu", "texto": "", "audio": (self.eu, "X"), "exigir_gatilho": True})
@@ -677,7 +791,8 @@ class CanalWhatsApp(unittest.TestCase):
         from unittest import mock
         self.montar()
         del self.r.chegou
-        self.r.ocupado = True
+        from pombo.execucao import Trabalho
+        self.r.rodando['x'] = Trabalho("mensagem", self.eu)  # um pedido rodando nesta conversa
         with mock.patch.object(self.r.canal, "aviso") as aviso, \
                 mock.patch.object(self.r.canal, "na_fila", return_value=False):
             self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi, tudo bem?"})

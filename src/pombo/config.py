@@ -75,6 +75,8 @@ BOT_PADRAO = {
     # pedido da mesma pessoa (em até 10 min). Áudio e chamar pelo gatilho ("pombo, oi") sempre valem
     "ignorar_triviais": True,
     # pedido demorado: o agente pode mandar avisos curtos no meio do trabalho (linha "AVISO: ..."), citando o pedido
+    # quantos pedidos rodam ao mesmo tempo (nunca dois na mesma conversa); 0 = automático: 2 no WhatsApp, 1 no Telegram
+    "paralelos": 0,
     "avisos_max": 3,                # por pedido (0 = desligado)
     "avisos_intervalo_s": 20,       # tempo mínimo entre dois avisos
     "transcricao_cmd": [],
@@ -326,7 +328,7 @@ def validar_bot(cfg):
                 cfg[campo] = int(cfg[campo])
         except (TypeError, ValueError):
             raise ErroConfig(f"{campo} precisa ser um número maior que zero")
-    for campo, minimo, maximo in (("avisos_max", 0, 10), ("avisos_intervalo_s", 0, 3600)):
+    for campo, minimo, maximo in (("avisos_max", 0, 10), ("avisos_intervalo_s", 0, 3600), ("paralelos", 0, 5)):
         try:
             if isinstance(cfg[campo], bool):
                 raise ValueError

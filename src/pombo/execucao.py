@@ -37,7 +37,7 @@ ROTINA = """[Rotina agendada "{nome}" ({quando})]
 O que você responder no fim vai para {usuario} no {canal}.{silencio}"""
 
 AVISOS = """
-Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (gerar imagem, pesquisa longa, muitas etapas): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Pedi a um subagente para gerar a imagem; quando ele terminar eu te mando.") e, de preferência, delegue o trabalho pesado a um subagente (ferramenta Agent), dizendo isso no aviso. Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso."""
+Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (gerar imagem, pesquisa longa, muitas etapas): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Pedi a um subagente para gerar a imagem; quando ele terminar eu te mando.") e, de preferência, delegue o trabalho pesado a um subagente (ferramenta Agent), dizendo isso no aviso. Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso. Depois do aviso, {usuario} pode mandar outras mensagens: elas são atendidas em paralelo, em outra conversa."""
 
 SILENCIO = " Se não houver nada de novo para contar, responda só SEM_NOVIDADE (nada mais), e nada será enviado."
 
@@ -220,17 +220,77 @@ def descrever(nome, entrada):
     return f"⚙️ {nome}…"
 
 
+# ---------------------------------------------------------------- fila e pedidos em paralelo
+#
+# Cada bot roda até `paralelos` pedidos ao mesmo tempo, mas nunca dois na mesma conversa do Claude (sessão): retomar
+# a mesma sessão em dois processos estragaria o histórico dela. Quem escolhe o próximo é BotRunner._escolher:
+# - mensagem que cita uma resposta do bot: continua a sessão daquela resposta; se ela estiver rodando, espera;
+# - mensagem sem citar: continua a conversa atual do chat; espera se houver outra mensagem sem citar rodando no mesmo
+#   chat, a não ser que aquele pedido já tenha "soltado" a conversa (mandou um AVISO, ou roda há mais de
+#   LIBERAR_APOS_S): aí esta roda numa conversa nova, em paralelo (com as últimas mensagens do chat como contexto);
+# - rotina: nunca duas rodadas da mesma rotina juntas, nem a sessão dela em uso por outro pedido.
+
+LIBERAR_APOS_S = 90
+TRABALHADORES = 5  # threads; quantas rodam juntas é o `paralelos` do bot (lido a cada escolha)
+
+
+class Fila:
+    """A fila do bot (o serviço usa put/qsize/empty, como no queue.Queue). Os itens ficam numa lista porque o próximo
+    a rodar nem sempre é o primeiro (veja BotRunner._escolher)."""
+
+    def __init__(self):
+        self.itens = []
+        self.cond = threading.Condition()
+
+    def put(self, item):
+        with self.cond:
+            if item is not None:  # None: só acorda os trabalhadores (o bot está parando)
+                self.itens.append(item)
+            self.cond.notify_all()
+
+    def qsize(self):
+        return len(self.itens)
+
+    def empty(self):
+        return not self.itens
+
+    def get_nowait(self):
+        with self.cond:
+            if not self.itens:
+                raise queue.Empty
+            return self.itens.pop(0)
+
+
+class Trabalho:
+    """Um pedido rodando: a conversa (sessão) que ele usa e o processo do agente."""
+
+    def __init__(self, tipo, chat=None, sessao=None, citou=False, rotina=None, desc=""):
+        self.tipo, self.chat, self.sessao, self.citou, self.rotina, self.desc = tipo, chat, sessao, citou, rotina, desc
+        self.sessao_viva = None  # a sessão que o agente informou (uma conversa nova ganha id no começo)
+        self.inicio = time.time()
+        self.avisou = False
+        self.antes = None     # a conversa atual do chat quando este começou (veja processar_mensagem)
+        self.paralela = None  # o pedido demorado do mesmo chat que roda junto (esta mensagem foi para uma conversa nova)
+        self.proc = None
+
+    def usa(self, sessao):
+        return bool(sessao) and sessao in (self.sessao, self.sessao_viva)
+
+    def solto(self):
+        """Pedido demorado: já avisou que vai demorar (ou roda há muito tempo). Outra mensagem do chat não espera."""
+        return self.avisou or time.time() - self.inicio > LIBERAR_APOS_S
+
+
 # ---------------------------------------------------------------- o bot
 
 class BotRunner:
     def __init__(self, bot_id, cfg, geral, token):
         self.id, self.cfg, self.geral, self.token = bot_id, cfg, geral, token
         self.estado = config.Estado(bot_id)
-        self.fila = queue.Queue()
+        self.fila = Fila()
         self.parar_evento = threading.Event()
-        self.ocupado = False
-        self.atual = ""
-        self.proc = None
+        self.rodando = {}  # id -> Trabalho
+        self._local = threading.local()
         self.username = ""
         self.erro = ""
         self.desde = time.time()
@@ -238,6 +298,18 @@ class BotRunner:
         self.pendentes = {}  # (chat, quem) -> [(quando, mensagem curta ou só com anexo)]: contexto do próximo pedido
         self._trava_pendentes = threading.Lock()
         self.canal = criar_canal(self, token)
+
+    @property
+    def ocupado(self):
+        return bool(self.rodando)
+
+    @property
+    def atual(self):
+        return "; ".join(t.desc for t in list(self.rodando.values()))
+
+    def paralelos(self):
+        n = self.cfg.get("paralelos") or 0
+        return n if n > 0 else (2 if self.cfg.get("canal") == "whatsapp" else 1)
 
     @property
     def tg(self):
@@ -253,7 +325,8 @@ class BotRunner:
         return cli_texto()
 
     def iniciar(self):
-        for alvo, nome in ((self._ouvir, "ouvir"), (self._trabalhar, "trabalhar")):
+        alvos = [(self._ouvir, "ouvir")] + [(lambda n=n: self._trabalhar(n), f"trabalhar{n}") for n in range(TRABALHADORES)]
+        for alvo, nome in alvos:
             t = threading.Thread(target=alvo, name=f"{self.id}-{nome}", daemon=True)
             t.start()
             self.threads.append(t)
@@ -273,17 +346,22 @@ class BotRunner:
     def atualizar(self, cfg, geral):
         self.cfg, self.geral = cfg, geral
 
-    def interromper(self):
-        p = self.proc
-        if p and p.poll() is None:
-            self.log("interrompendo o agente")
-            p.terminate()
-            try:
-                p.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                p.kill()
-            return True
-        return False
+    def interromper(self, chat=None, trabalho=None):
+        """Para o agente: de um pedido, dos pedidos de um chat ou (sem nada) todos. Devolve se parou algum."""
+        parou = False
+        for t in list(self.rodando.values()):
+            if (trabalho is not None and t is not trabalho) or (chat is not None and str(t.chat) != str(chat)):
+                continue
+            p = t.proc
+            if p and p.poll() is None:
+                self.log("interrompendo o agente" + (f" ({t.desc})" if t.desc else ""))
+                p.terminate()
+                try:
+                    p.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                parou = True
+        return parou
 
     def dono(self):
         """Para onde vão rotinas e avisos: a conversa do dono do bot."""
@@ -327,7 +405,10 @@ class BotRunner:
             self.log(f"mensagem curta ou só com anexo de {m.get('de')}: sem resposta, fica de contexto para o próximo pedido")
             return
         self.juntar_pendentes(m)
-        if (self.ocupado or not self.fila.empty()) and not m.get("exigir_gatilho"):
+        with self.fila.cond:
+            vai_esperar = (len(self.rodando) >= self.paralelos() or bool(self.fila.itens)
+                           or self._avaliar(("mensagem", m), set()) is None)
+        if vai_esperar and not m.get("exigir_gatilho"):
             na_fila = getattr(self.canal, "na_fila", None)
             if not (na_fila and na_fila(m["chat"], m.get("id"))):
                 self.canal.aviso(m["chat"], "⏳ Recebi! Tô terminando o pedido anterior e já vejo esse.", m.get("id"))
@@ -367,7 +448,7 @@ class BotRunner:
             self.estado.atualizar(lambda d: d.setdefault("sessoes", {}).pop(str(chat), None))
             responder(chat, "🆕 Beleza, conversa nova. Esqueci o contexto anterior.", mid)
         elif cmd == "/parar":
-            responder(chat, "🛑 Parei o que estava rodando." if self.interromper() else "Não tinha nada rodando.", mid)
+            responder(chat, "🛑 Parei o que estava rodando." if self.interromper(chat=chat) else "Não tinha nada rodando.", mid)
         elif cmd == "/status":
             s = (self.estado.ler().get("sessoes") or {}).get(str(chat)) or {}
             idade = f"há {int((time.time() - s['ultima']) / 60)} min" if s.get("ultima") else "nenhuma"
@@ -421,15 +502,96 @@ class BotRunner:
 
     # ---- trabalho
 
-    def _trabalhar(self):
+    def sessao_da_mensagem(self, m, est=None):
+        """(sessão, citou): a da resposta do bot que a mensagem cita; senão, a conversa atual do chat (se não expirou)."""
+        est = est if est is not None else self.estado.ler()
+        chat = m["chat"]
+        citada = (m.get("citada") or {}).get("id")
+        if citada:
+            s = (est.get("mensagens") or {}).get(f"{chat}:{citada}")
+            if s:
+                return s, True
+        s = (est.get("sessoes") or {}).get(str(chat)) or {}
+        if s.get("id") and time.time() - s.get("ultima", 0) <= self.cfg["nova_sessao_apos_horas"] * 3600:
+            return s["id"], False
+        return None, False
+
+    def _ocupada(self, sessao):
+        return any(t.usa(sessao) for t in self.rodando.values())
+
+    def _avaliar(self, item, chats_esperando, est=None):
+        """O Trabalho para rodar este item agora, ou None se ele precisa esperar. Chamar com a fila.cond na mão."""
+        if item[0] == "rotina":
+            rid = item[1]
+            sessao = None
+            r = next((x for x in self.cfg["rotinas"] if x["id"] == rid), None)
+            if r and r["conversa"] == "continuar":
+                sessao = (((est or self.estado.ler()).get("rotinas") or {}).get(rid) or {}).get("sessao")
+            if any(t.rotina == rid for t in self.rodando.values()) or self._ocupada(sessao):
+                return None
+            return Trabalho("rotina", sessao=sessao, rotina=rid, desc="rotina: " + (r["nome"] if r else rid))
+        m = item[1]
+        chat = m["chat"]
+        desc = "pedido: " + (m.get("texto") or "anexo")[:60]
+        est = est if est is not None else self.estado.ler()
+        t = self._avaliar_mensagem(m, chat, desc, chats_esperando, est)
+        if t:
+            t.antes = ((est.get("sessoes") or {}).get(str(chat)) or {}).get("id")
+        return t
+
+    def _avaliar_mensagem(self, m, chat, desc, chats_esperando, est):
+        sessao, citou = self.sessao_da_mensagem(m, est)
+        if citou:
+            return None if self._ocupada(sessao) else Trabalho("mensagem", chat, sessao, True, desc=desc)
+        if str(chat) in chats_esperando:
+            return None  # uma mensagem anterior deste chat ainda espera: a ordem vale
+        mesmo_chat = [t for t in self.rodando.values() if t.tipo == "mensagem" and str(t.chat) == str(chat)
+                      and not t.citou]
+        if any(not t.solto() for t in mesmo_chat):
+            return None
+        donos = [t for t in self.rodando.values() if t.usa(sessao)]
+        if donos:
+            if not all(t.solto() for t in donos):
+                return None
+            t = Trabalho("mensagem", chat, None, False, desc=desc)  # conversa nova, em paralelo à demorada
+            t.paralela = donos[0].desc
+            return t
+        return Trabalho("mensagem", chat, sessao, False, desc=desc)
+
+    def _escolher(self):
+        """O próximo item que pode rodar agora (tira da fila) e o Trabalho dele, ou None."""
+        if len(self.rodando) >= self.paralelos():
+            return None
+        est = self.estado.ler()
+        esperando = set()
+        for i, item in enumerate(self.fila.itens):
+            t = self._avaliar(item, esperando, est)
+            if t:
+                self.fila.itens.pop(i)
+                return item, t
+            if item[0] == "mensagem":
+                esperando.add(str(item[1]["chat"]))
+        return None
+
+    def _trabalhar(self, n=0):
+        self._local.n = n
         while not self.parar_evento.is_set():
-            item = self.fila.get()
-            if item is None:
-                break
-            self.ocupado = True
+            with self.fila.cond:
+                escolha = None
+                while not self.parar_evento.is_set():
+                    escolha = self._escolher()
+                    if escolha:
+                        break
+                    self.fila.cond.wait(5)  # acorda de vez em quando: um pedido longo pode ter "soltado" a conversa
+                if not escolha:
+                    break
+                item, trab = escolha
+                chave = object()
+                self.rodando[chave] = trab
+            self._local.trab = trab
             try:
                 if item[0] == "mensagem":
-                    self.processar_mensagem(item[1])
+                    self.processar_mensagem(item[1], trab)
                 elif item[0] == "rotina":
                     self.processar_rotina(item[1], manual=item[2])
             except Exception:
@@ -450,8 +612,10 @@ class BotRunner:
                             concluir(item[1].get("id"))
                         except Exception:
                             pass
-                self.ocupado = False
-                self.atual = ""
+                self._local.trab = None
+                with self.fila.cond:
+                    self.rodando.pop(chave, None)
+                    self.fila.cond.notify_all()
 
     def sistema(self):
         cfg = self.cfg
@@ -477,22 +641,28 @@ class BotRunner:
         if not os.path.isdir(pasta):
             return "", sessao, f"a pasta {pasta} não existe", {}
         cmd, env = motores.comando_claude(cfg, self.geral, self.id, self.sistema(), sessao)
-        arq_erros = config.caminho("logs", self.id + "-agente-erros.log")
+        n = getattr(self._local, "n", 0)
+        arq_erros = config.caminho("logs", self.id + "-agente-erros" + (f"-{n + 1}" if n else "") + ".log")
         info = {"custo_usd": None, "negadas": []}
+        trab = getattr(self._local, "trab", None)
+        if trab is None:  # chamado fora de um trabalhador (testes): um Trabalho só para guardar o processo
+            trab = Trabalho("avulso", sessao=sessao)
         with open(arq_erros, "w", encoding="utf-8") as erros:
-            self.proc = subprocess.Popen(cmd, cwd=pasta, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                         stderr=erros, text=True, encoding="utf-8", errors="replace")
-            limite = threading.Timer(cfg["tempo_maximo_min"] * 60, self.interromper)
+            proc = subprocess.Popen(cmd, cwd=pasta, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=erros, text=True, encoding="utf-8", errors="replace")
+            trab.proc = proc
+            limite = threading.Timer(cfg["tempo_maximo_min"] * 60, lambda: self._matar(proc))
             limite.start()
             resultado, nova, ultimo_texto, erro = None, sessao, "", None
             try:
-                self.proc.stdin.write(prompt)
-                self.proc.stdin.close()
-                for linha in self.proc.stdout:
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+                for linha in proc.stdout:
                     d = motores.ler_evento(linha)
                     if not d:
                         continue
                     nova = d.get("session_id") or nova
+                    trab.sessao_viva = nova
                     if d.get("type") == "assistant":
                         do_agente = not d.get("parent_tool_use_id")  # o resto é de um subagente
                         for c in (d.get("message") or {}).get("content", []):
@@ -511,17 +681,26 @@ class BotRunner:
                         info["negadas"] = sorted({x.get("tool_name", "?") for x in d.get("permission_denials") or []})
                         if d.get("is_error"):
                             erro = d.get("subtype") or "erro"
-                self.proc.wait(timeout=30)
+                proc.wait(timeout=30)
                 if resultado is None:
                     erros.flush()
                     err = config.ler_texto(arq_erros)[-800:]
-                    erro = erro or f"o agente terminou sem resposta (código {self.proc.returncode}). {err}".strip()
+                    erro = erro or f"o agente terminou sem resposta (código {proc.returncode}). {err}".strip()
             finally:
                 limite.cancel()
-                if self.proc and self.proc.stdout:
-                    self.proc.stdout.close()
-                self.proc = None
+                if proc.stdout:
+                    proc.stdout.close()
+                trab.proc = None
         return resultado or ultimo_texto, nova, erro, info
+
+    def _matar(self, proc):
+        if proc.poll() is None:
+            self.log("o pedido passou do tempo máximo: interrompendo o agente")
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     def conferir_gatilho_no_audio(self, caminho):
         """O áudio começa com o gatilho? Devolve (achou, texto sem o gatilho, falha). Áudio longo: transcreve só o
@@ -650,6 +829,11 @@ class BotRunner:
             "ok": not erro, "erro": erro, "custo_usd": info.get("custo_usd"), "negadas": info.get("negadas") or [],
             "sessao": sessao, "pedido": (pedido or "")[:200], "resposta": (resposta or "")[:400]})
 
+    def _soltar(self, trab):
+        with self.fila.cond:
+            trab.avisou = True
+            self.fila.cond.notify_all()
+
     def descrever_pendente(self, p, anexos):
         """Uma mensagem curta ou só com anexo que veio antes deste pedido: entra como contexto dele."""
         canal = self.canal
@@ -664,8 +848,9 @@ class BotRunner:
                           "(abra com a ferramenta Read).")
         return linhas
 
-    def processar_mensagem(self, m):
-        """m: mensagem no formato comum (chat, id, de, texto, audio, fotos, arquivos, citada, contexto)."""
+    def processar_mensagem(self, m, trab=None):
+        """m: mensagem no formato comum (chat, id, de, texto, audio, fotos, arquivos, citada, contexto). trab: o
+        Trabalho que o _escolher montou (a sessão já escolhida); sem ele, escolhe aqui."""
         inicio = time.time()
         canal = self.canal
         chat, mid = m["chat"], m.get("id")
@@ -737,26 +922,36 @@ class BotRunner:
             if extras:
                 prompt += "\n\n" + "\n".join(extras)
 
-            est = self.estado.ler()
-            sessao = None
-            if citada.get("id"):
-                sessao = (est.get("mensagens") or {}).get(f"{chat}:{citada['id']}")
-            if not sessao:
-                s = (est.get("sessoes") or {}).get(str(chat)) or {}
-                sessao = s.get("id")
-                if sessao and time.time() - s.get("ultima", 0) > self.cfg["nova_sessao_apos_horas"] * 3600:
-                    sessao = None
-            self.atual = "pedido: " + (texto or "anexo")[:60]
+            if trab is None:
+                sessao, citou = self.sessao_da_mensagem(m)
+            else:
+                sessao, citou = trab.sessao, trab.citou
+            if getattr(trab, "paralela", None):
+                prompt += ("\n\nAtenção: um pedido anterior desta conversa ainda está rodando em paralelo ("
+                           f"{trab.paralela}). Esta mensagem roda numa conversa separada: se ela depender daquele "
+                           "pedido, diga que a resposta dele ainda vai chegar (ou peça para responder citando aquele pedido).")
+            antes = trab.antes if trab is not None else \
+                ((self.estado.ler().get("sessoes") or {}).get(str(chat)) or {}).get("id")
             andamento.mostrar("🧠 Pensando…")
-            self.log(f"pedido de {chat}: {prompt[:200]!r} (conversa {sessao or 'nova'})")
+            self.log(f"pedido de {chat}: {prompt[:200]!r} (conversa {sessao or 'nova'}"
+                     + (", em paralelo" if getattr(trab, "paralela", None) else "") + ")")
             avisos = Avisos(self, chat, mid)
+            if trab is not None:
+                avisos.ao_enviar = lambda: self._soltar(trab)
             resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento, avisar=avisos)
             if erro and sessao and not resultado:
                 self.log(f"falha retomando a conversa ({erro}); tentando conversa nova")
                 resultado, nova, erro, info = self.rodar_agente(prompt, None, andamento, avisar=avisos)
             deu_erro = bool(erro and not resultado)
-            self.estado.atualizar(lambda d: d.setdefault("sessoes", {}).__setitem__(
-                str(chat), {"id": nova, "ultima": time.time()}))
+
+            def atual(d):
+                # citou uma resposta: aquela conversa vira a atual. Sem citar: só se ninguém trocou a conversa atual
+                # enquanto este rodava (um pedido em paralelo que terminou antes fica sendo a atual)
+                sessoes = d.setdefault("sessoes", {})
+                agora = (sessoes.get(str(chat)) or {}).get("id")
+                if citou or agora in (antes, nova, None):
+                    sessoes[str(chat)] = {"id": nova, "ultima": time.time()}
+            self.estado.atualizar(atual)
         finally:
             andamento.fim(erro=deu_erro)
         resultado = self.pedido_de_acesso(m, texto or transcrito or "", resultado)
@@ -787,7 +982,6 @@ class BotRunner:
         sessao = None
         if r["conversa"] == "continuar":
             sessao = ((self.estado.ler().get("rotinas") or {}).get(rid) or {}).get("sessao")
-        self.atual = "rotina: " + r["nome"]
         self.log(f'rotina "{r["nome"]}" começando ({quando})')
         andamento = SemAndamento() if r["silenciosa"] else self.canal.andamento(
             chat, None, inicio=f"⏰ {r['nome']}: começando…", prefixo=f"⏰ {r['nome']}: ")
