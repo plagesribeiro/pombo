@@ -49,6 +49,8 @@ MAX_IDADE_S = 24 * 3600
 CACHE_GRUPO_S = 60  # como o Telegram: mensagem com mais de um dia (computador desligado) não é respondida
 MAX_VISTAS = 2000
 MAX_ENVIADAS = 1000
+MAX_TRANSCRICOES = 300  # áudios transcritos guardados (o histórico mostra o texto em vez de só "[áudio]")
+TRANSCRICAO_MAX = 2000  # cada transcrição guardada vai cortada nesse tamanho
 CONTEXTO_POR_MENSAGEM = 400  # cada mensagem do histórico vai cortada nesse tamanho (a citada vai inteira)
 
 
@@ -990,7 +992,7 @@ class CanalWhatsApp:
         self._grupos_meus = {}     # grupo -> (quando conferiu, só você está nele?)
         self._a_concluir = {}      # mensagem -> Reacao que espera a resposta sair para tirar a reação
         self._na_fila = {}         # mensagem -> "⏳" (esperou na fila: a reação sai junto no fim)
-        self._enviadas_cache = (0.0, set())
+        self._estado_cache = (0.0, {})
         self._reivindicadas = (0.0, set())  # conversas que outros bots liberaram pelo nome
         self._outros = (0.0, [])            # (quando, [(número de bot deste computador, bots ligados dele)])
         self.aviso_padrao = ""              # outro computador também é a pasta padrão deste número
@@ -1099,6 +1101,21 @@ class CanalWhatsApp:
                 lista.append(mid)
             del lista[:-MAX_ENVIADAS]
         self.r.estado.atualizar(f)
+
+    def anotar_transcricao(self, mid, texto):
+        """Guarda o texto de um áudio já transcrito: o histórico e a citada mostram o texto sem transcrever de novo."""
+        texto = (texto or "").strip()
+        if not mid or not texto:
+            return
+
+        def f(d):
+            t = self._est(d).setdefault("transcricoes", {})
+            t.pop(mid, None)
+            t[mid] = texto[:TRANSCRICAO_MAX]
+            for k in list(t)[:-MAX_TRANSCRICOES]:
+                t.pop(k, None)
+        self.r.estado.atualizar(f)
+        self._estado_cache = (0.0, {})
 
     def _marcar_vista(self, chave):
         def f(d):
@@ -1698,6 +1715,8 @@ class CanalWhatsApp:
         t = (x.get("Text") or x.get("MediaCaption") or x.get("DisplayText") or "").strip()
         if (x.get("MediaType") or "") and t.lower() in ("[audio]", "[image]", "[video]", "[document]", "[sticker]"):
             t = ""
+        if not t:
+            t = self._transcricao(x)
         prefixo = (self.cfg().get("prefixo") or "").strip()
         if x.get("FromMe") and prefixo and t.startswith(prefixo):
             t = t[len(prefixo):].strip()
@@ -1713,12 +1732,24 @@ class CanalWhatsApp:
         texto = (x.get("Text") or x.get("MediaCaption") or "").lstrip()
         return bool(prefixo and texto.startswith(prefixo)) or x.get("MsgID") in self._enviadas()
 
-    def _enviadas(self):
-        """O que o bot mandou (guardado por 2 s: o histórico pergunta para cada mensagem)."""
+    def _estado_wa(self):
+        """O estado do WhatsApp deste bot, guardado por 2 s (o histórico pergunta para cada mensagem)."""
         agora = time.time()
-        if agora - self._enviadas_cache[0] > 2:
-            self._enviadas_cache = (agora, set((self.r.estado.ler().get("whatsapp") or {}).get("enviadas") or []))
-        return self._enviadas_cache[1]
+        if agora - self._estado_cache[0] > 2:
+            e = self.r.estado.ler().get("whatsapp") or {}
+            self._estado_cache = (agora, {"enviadas": set(e.get("enviadas") or []),
+                                          "transcricoes": dict(e.get("transcricoes") or {})})
+        return self._estado_cache[1]
+
+    def _enviadas(self):
+        """O que o bot mandou."""
+        return self._estado_wa()["enviadas"]
+
+    def _transcricao(self, x):
+        """O texto de um áudio que o bot já transcreveu (ou "")."""
+        if (x.get("MediaType") or "").lower() not in ("audio", "ptt"):
+            return ""
+        return self._estado_wa()["transcricoes"].get(x.get("MsgID") or "", "")
 
     def _quem(self, x):
         dono = (self.r.geral.get("usuario_nome") or "").strip() or "dono"
@@ -1735,6 +1766,8 @@ class CanalWhatsApp:
         midia = (x.get("MediaType") or "").lower()
         rotulo = {"audio": "[áudio]", "image": "[foto]", "sticker": "[figurinha]", "video": "[vídeo]", "gif": "[gif]",
                   "ptv": "[vídeo]"}.get(midia, f"[arquivo {x.get('Filename') or midia}]" if midia else "")
+        if rotulo == "[áudio]" and self._transcricao(x):
+            rotulo = "[áudio, transcrito]"
         t = self._texto_inteiro(x).replace("\n", " ")
         if len(t) > limite:
             t = t[:limite].rstrip() + "…"

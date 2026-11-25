@@ -720,6 +720,15 @@ class BotRunner:
             return True, transcrito.strip(), None  # o começo tinha o gatilho; a transcrição inteira escreveu diferente
         return achou, resto, falha
 
+    def guardar_transcricao(self, mid, texto):
+        """O canal que mostra histórico (WhatsApp) guarda o texto do áudio para não transcrever de novo."""
+        f = getattr(self.canal, "anotar_transcricao", None)
+        if f and mid:
+            try:
+                f(mid, texto)
+            except Exception as e:
+                self.log(f"transcrição não guardada ({e})")
+
     def transcrever(self, caminho):
         cmd = self.cfg.get("transcricao_cmd") or []
         if not cmd:
@@ -879,6 +888,8 @@ class BotRunner:
         deu_erro = True  # uma exceção no meio também é erro
         try:
             audio = m.get("audio")
+            if transcrito:
+                self.guardar_transcricao(mid, transcrito)
             if transcrito is not None:
                 partes.append(f"(Mensagem de áudio, transcrita) {transcrito}")
                 andamento.mostrar("🎧 Entendi: " + transcrito[:150], forcar=True)
@@ -887,6 +898,7 @@ class BotRunner:
                 caminho = canal.baixar(audio, anexos)
                 transcrito, falha = self.transcrever(caminho)
                 if transcrito:
+                    self.guardar_transcricao(mid, transcrito)
                     partes.append(f"(Mensagem de áudio, transcrita) {transcrito}")
                     andamento.mostrar("🎧 Entendi: " + transcrito[:150], forcar=True)
                 else:

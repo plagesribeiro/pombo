@@ -965,6 +965,22 @@ class CanalWhatsApp(unittest.TestCase):
         self.r.cfg["whatsapp"]["contexto_mensagens"] = 0
         self.assertEqual(self.c.historico(m), "")
 
+    def test_audio_transcrito_aparece_no_historico_e_na_citada(self):
+        self.montar(meu_numero=False, conversas=["privadas"], gatilho_sempre=False, prefixo="", usuarios=["5531911112222"])
+        ana = "5531911112222@s.whatsapp.net"
+        audio = self.f.chegar(self.store, ana, "", de_mim=False, midia="audio", idade_s=60)
+        outro = self.f.chegar(self.store, ana, "", de_mim=False, midia="audio", idade_s=50)
+        self.c.anotar_transcricao(audio, "compra pão na volta")
+        m = self.chegar(ana, "e aí?", de_mim=False, citada=audio)
+        h = self.c.historico(m)
+        self.assertIn("[áudio, transcrito] compra pão na volta", h)
+        self.assertIn(": [áudio]\n", h + "\n")  # o que não foi transcrito continua só "[áudio]"
+        self.assertEqual(m["citada"]["texto"], "compra pão na volta")
+        for i in range(400):  # guarda só as últimas
+            self.c.anotar_transcricao(f"X{i}", "t")
+        self.assertNotIn(audio, self.r.estado.ler()["whatsapp"]["transcricoes"])
+        del outro
+
     def test_reacao_no_grupo_leva_o_remetente(self):
         self.montar()
         g = self.f.grupo(self.store, "🎓 Mestrado")
