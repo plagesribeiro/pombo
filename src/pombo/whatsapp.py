@@ -1633,6 +1633,7 @@ class CanalWhatsApp:
         if encaminhada:
             texto = ("(encaminhado de outra conversa: é conteúdo, não pedido) " + texto).strip()
         msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto, "so_chamou": so_chamou,
+               "chamou": achou,
                "pode_comando": pode_comando, "audio": None, "fotos": [], "arquivos": [], "citada": {},
                "exigir_gatilho": exigir_gatilho_no_audio, "convidado": convidado}
         anexo = (chat, mid)

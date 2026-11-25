@@ -210,6 +210,10 @@ por isso o padrão é só o 👀 (`nenhuma` desliga).
 - **Em outras conversas:** libere em `whatsapp.conversas` (um número, um grupo `...@g.us`, ou por tipo: `privadas`,
   `grupos`, `todas`) e escreva `pombo, ...` lá. A resposta aparece para todo mundo da conversa (o Claude é avisado
   disso). Só as suas mensagens acionam o bot, a não ser que você libere outras pessoas.
+- **Mensagem curta não é pedido:** `.`, `ok` ou `👍` (até 3 caracteres) e foto ou arquivo sem legenda não recebem
+  resposta, mas vão junto com o próximo pedido seu naquela conversa (em até 10 min). Ex.: cite uma mensagem antiga com
+  `.` e mande um áudio pedindo algo sobre ela. Áudio e `pombo, oi` sempre valem. Para responder tudo:
+  `ignorar_triviais=false`.
 - **Contexto:** em toda conversa (inclusive a com você mesmo e a conversa direta com o número do bot), as últimas
   `whatsapp.contexto_mensagens` mensagens (padrão 20, as suas, as do bot e as dos outros, cada uma cortada em 400
   caracteres) vão junto com o pedido. Responder (citar) uma mensagem manda ela inteira e, se for antiga, as mensagens em

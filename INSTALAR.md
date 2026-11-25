@@ -154,7 +154,7 @@ ou um número só do bot.
 4. Confira com `pombo whatsapp status` e `pombo status` (o bot aparece com o número).
 5. Teste:
    - no número dela: na conversa com ela mesma, mandar **"pombo, oi"**;
-   - num número só do bot: liberar quem fala com ele (`pombo bots liberar zap +55DDDNUMERO`) e mandar "oi" para o
+   - num número só do bot: liberar quem fala com ele (`pombo bots liberar zap +55DDDNUMERO`) e mandar "oi, tudo bem?" para o
      número do bot.
 
    A mensagem ganha 👀, a resposta chega começando com 🐦 e a reação some.

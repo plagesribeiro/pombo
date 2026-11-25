@@ -113,6 +113,21 @@ def apagar(caminho):
         pass
 
 
+# ---------------------------------------------------------------- mensagens curtas: contexto, não pedido
+
+TRIVIAL_MAX = 3      # texto com até isso de caracteres (".", "ok", "👍") não é respondido
+PENDENTE_S = 600     # ... mas vai junto com o próximo pedido de verdade da mesma pessoa, se vier em até 10 min
+PENDENTES_MAX = 5
+
+
+def eh_trivial(m):
+    """Mensagem que não pede nada: texto muito curto ou só um anexo (foto, arquivo, figurinha) sem legenda. Áudio é
+    sempre um pedido (é transcrito), e chamar o bot pelo gatilho ou marcando ("pombo, oi") também."""
+    if m.get("audio") or m.get("so_chamou") or m.get("chamou"):
+        return False
+    return len((m.get("texto") or "").strip()) <= TRIVIAL_MAX
+
+
 # ---------------------------------------------------------------- andamento ("Recebi!", "Lendo...")
 # O de cada canal fica no canal (CanalTelegram.andamento, CanalWhatsApp.andamento).
 
@@ -166,6 +181,8 @@ class BotRunner:
         self.erro = ""
         self.desde = time.time()
         self.threads = []
+        self.pendentes = {}  # (chat, quem) -> [(quando, mensagem curta ou só com anexo)]: contexto do próximo pedido
+        self._trava_pendentes = threading.Lock()
         self.canal = criar_canal(self, token)
 
     @property
@@ -251,11 +268,37 @@ class BotRunner:
         if texto.startswith("/") and m.get("pode_comando", True) and self.comando(texto, m["chat"], m.get("id"), m.get("de")):
             self.log(f"comando de {m.get('de')}: {texto[:60]!r}")  # sem isso, um /novo some do log e a conversa "esquece" sem explicação
             return
+        if self.cfg.get("ignorar_triviais", True) and eh_trivial(m):
+            self.guardar_pendente(m)
+            self.log(f"mensagem curta ou só com anexo de {m.get('de')}: sem resposta, fica de contexto para o próximo pedido")
+            return
+        self.juntar_pendentes(m)
         if (self.ocupado or not self.fila.empty()) and not m.get("exigir_gatilho"):
             na_fila = getattr(self.canal, "na_fila", None)
             if not (na_fila and na_fila(m["chat"], m.get("id"))):
                 self.canal.aviso(m["chat"], "⏳ Recebi! Tô terminando o pedido anterior e já vejo esse.", m.get("id"))
         self.fila.put(("mensagem", m))
+
+    def guardar_pendente(self, m):
+        with self._trava_pendentes:
+            lista = self.pendentes.setdefault((str(m.get("chat")), str(m.get("de"))), [])
+            lista.append((time.time(), m))
+            del lista[:-PENDENTES_MAX]
+
+    def juntar_pendentes(self, m):
+        """As mensagens curtas (ou só com anexo) que a mesma pessoa mandou nesta conversa há pouco vão junto com esta.
+        Se uma delas citava uma mensagem e esta não cita nada, esta passa a citar aquela (continua aquela conversa)."""
+        with self._trava_pendentes:
+            lista = self.pendentes.pop((str(m.get("chat")), str(m.get("de"))), [])
+        agora = time.time()
+        juntas = [p for t, p in lista if agora - t <= PENDENTE_S]
+        if not juntas:
+            return
+        m["pendentes"] = juntas
+        if not (m.get("citada") or {}).get("id"):
+            citada = next((p["citada"] for p in reversed(juntas) if (p.get("citada") or {}).get("id")), None)
+            if citada:
+                m["citada"] = dict(citada, antes=True)
 
     def comando(self, texto, chat, mid, de=None):
         de = chat if de is None else de  # no Telegram, a conversa privada tem o ID da própria pessoa
@@ -539,6 +582,20 @@ class BotRunner:
             "ok": not erro, "erro": erro, "custo_usd": info.get("custo_usd"), "negadas": info.get("negadas") or [],
             "sessao": sessao, "pedido": (pedido or "")[:200], "resposta": (resposta or "")[:400]})
 
+    def descrever_pendente(self, p, anexos):
+        """Uma mensagem curta ou só com anexo que veio antes deste pedido: entra como contexto dele."""
+        canal = self.canal
+        linhas = []
+        texto = (p.get("texto") or "").strip()
+        if texto and texto not in (".", ".."):
+            linhas.append(f"Pouco antes, escreveu: «{texto}»")
+        for foto in p.get("fotos") or []:
+            linhas.append(f"Pouco antes, mandou uma foto: {canal.baixar(foto, anexos)} (abra com a ferramenta Read).")
+        for d in p.get("arquivos") or []:
+            linhas.append(f"Pouco antes, mandou o arquivo \"{d.get('nome')}\": {canal.baixar(d['anexo'], anexos)} "
+                          "(abra com a ferramenta Read).")
+        return linhas
+
     def processar_mensagem(self, m):
         """m: mensagem no formato comum (chat, id, de, texto, audio, fotos, arquivos, citada, contexto)."""
         inicio = time.time()
@@ -587,6 +644,8 @@ class BotRunner:
                 extras.append(f"Mandou o arquivo \"{d.get('nome')}\": {canal.baixar(d['anexo'], anexos)} (abra com a ferramenta Read).")
             if texto:
                 partes.append(texto)
+            for p in m.get("pendentes") or []:
+                extras.extend(self.descrever_pendente(p, anexos))
             historico = getattr(canal, "historico", None)
             if m.get("historico") and historico:
                 h = historico(m)  # na hora de rodar: inclui o que o bot respondeu enquanto esta esperava na fila
@@ -595,7 +654,9 @@ class BotRunner:
             citada = m.get("citada") or {}
             if citada.get("texto"):
                 quem = f" (de {citada['quem']})" if citada.get("quem") else ""
-                extras.append(f"Está respondendo a esta mensagem{quem}: «{citada['texto'][:CITADA_MAX]}»")
+                como = "Pouco antes, citou (respondeu a) esta mensagem" if citada.get("antes") else \
+                    "Está respondendo a esta mensagem"
+                extras.append(f"{como}{quem}: «{citada['texto'][:CITADA_MAX]}»")
             if m.get("contexto"):
                 extras.append(m["contexto"])
             if not partes and not extras:

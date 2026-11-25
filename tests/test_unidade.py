@@ -233,6 +233,56 @@ class Conversas(unittest.TestCase):
             self.assertEqual(agente.call_args[0][1], "S-ROTINA")
 
 
+class Triviais(unittest.TestCase):
+    """Mensagem curta ou só com anexo não é respondida, mas vai junto com o próximo pedido."""
+
+    def test_curtas_e_anexos_ficam_de_contexto(self):
+        from unittest import mock
+        from pombo import execucao
+        self.assertTrue(execucao.eh_trivial({"texto": " ok "}))
+        self.assertTrue(execucao.eh_trivial({"texto": "", "fotos": ["F"]}))
+        self.assertFalse(execucao.eh_trivial({"texto": "", "audio": "A"}))  # áudio é transcrito: é pedido
+        self.assertFalse(execucao.eh_trivial({"texto": "oi", "chamou": True}))  # "pombo, oi"
+        self.assertFalse(execucao.eh_trivial({"texto": "", "so_chamou": True}))  # só "@Pombo"
+        self.assertFalse(execucao.eh_trivial({"texto": "que horas são?"}))
+        cfg = config.validar_bot({"pasta": "~", "usuarios_permitidos": [7]})
+        r = execucao.BotRunner("triv", cfg, config.carregar_geral(), "t")
+        r.estado.atualizar(lambda d: d.update(mensagens={"7:50": "S-VELHA"}, sessoes={}))
+        with mock.patch.object(r.canal, "responder", return_value=[]) as responder:
+            r.chegou({"chat": 7, "id": 1, "de": 7, "texto": ".", "citada": {"id": 50, "texto": "o orçamento da obra"}})
+            r.chegou({"chat": 7, "id": 2, "de": 7, "texto": "", "fotos": ["FOTO1"]})
+            r.chegou({"chat": 7, "id": 3, "de": 7, "texto": "/novo"})  # comando curto continua valendo
+            responder.assert_called_once()
+        self.assertEqual(r.fila.qsize(), 0)  # nada foi para a fila
+        r.estado.atualizar(lambda d: d.update(mensagens={"7:50": "S-VELHA"}, sessoes={}))
+        r.chegou({"chat": 7, "id": 4, "de": 7, "texto": "quanto deu no total?"})
+        item = r.fila.get_nowait()
+        m = item[1]
+        self.assertEqual([p["id"] for p in m["pendentes"]], [1, 2])
+        self.assertEqual((m["citada"]["id"], m["citada"]["antes"]), (50, True))  # a citação do "." vale para este
+        with mock.patch.object(r.canal, "baixar", side_effect=lambda a, p: "/tmp/" + a + ".jpg"), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r.canal, "responder", return_value=[]), \
+                mock.patch.object(r, "rodar_agente", return_value=("Deu 10 mil.", "S-VELHA", None, {})) as agente:
+            r.processar_mensagem(m)
+        prompt, sessao = agente.call_args[0][:2]
+        self.assertIn("quanto deu no total?", prompt)
+        self.assertIn("/tmp/FOTO1.jpg", prompt)
+        self.assertIn("o orçamento da obra", prompt)
+        self.assertEqual(sessao, "S-VELHA")  # continua a conversa da mensagem citada pelo "."
+        # depois de 10 min, o que ficou pendente não vale mais; e de outra pessoa, também não
+        r.chegou({"chat": 7, "id": 5, "de": 7, "texto": "ok"})
+        r.chegou({"chat": 7, "id": 6, "de": 8, "texto": "e agora?"})
+        self.assertNotIn("pendentes", r.fila.get_nowait()[1])
+        with mock.patch.object(execucao.time, "time", return_value=__import__("time").time() + 700):
+            r.chegou({"chat": 7, "id": 7, "de": 7, "texto": "e agora?"})
+        self.assertNotIn("pendentes", r.fila.get_nowait()[1])
+        # desligado: responde tudo
+        r.cfg["ignorar_triviais"] = False
+        r.chegou({"chat": 7, "id": 8, "de": 7, "texto": "ok"})
+        self.assertEqual(r.fila.get_nowait()[1]["id"], 8)
+
+
 class Atualizar(unittest.TestCase):
     def setUp(self):
         from pombo import atualizar
@@ -552,7 +602,7 @@ class CanalWhatsApp(unittest.TestCase):
                 mock.patch.object(self.r.canal, "na_fila", return_value=True) as na_fila:
             self.r.chegou({"chat": self.eu, "id": "X", "de": "eu", "texto": "", "audio": (self.eu, "X"), "exigir_gatilho": True})
             na_fila.assert_not_called()
-            self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi"})
+            self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi, tudo bem?"})
             na_fila.assert_called_once_with(self.eu, "Y")
             aviso.assert_not_called()  # no WhatsApp, a fila é um ⏳ na mensagem, não um texto
 
@@ -563,7 +613,7 @@ class CanalWhatsApp(unittest.TestCase):
         self.r.ocupado = True
         with mock.patch.object(self.r.canal, "aviso") as aviso, \
                 mock.patch.object(self.r.canal, "na_fila", return_value=False):
-            self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi"})
+            self.r.chegou({"chat": self.eu, "id": "Y", "de": "eu", "texto": "oi, tudo bem?"})
             aviso.assert_called_once()
 
     def test_na_fila_reage_com_ampulheta(self):

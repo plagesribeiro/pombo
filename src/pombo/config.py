@@ -71,6 +71,9 @@ BOT_PADRAO = {
     "env": {},
     "nova_sessao_apos_horas": 6,
     "tempo_maximo_min": 25,
+    # texto de até 3 caracteres (".", "ok") ou só um anexo sem legenda não é respondido: vai como contexto do próximo
+    # pedido da mesma pessoa (em até 10 min). Áudio e chamar pelo gatilho ("pombo, oi") sempre valem
+    "ignorar_triviais": True,
     "transcricao_cmd": [],
     "token_keychain": "",
     "whatsapp": {},
@@ -309,7 +312,7 @@ def validar_bot(cfg):
     for nome, srv in cfg["mcps"].items():
         if not isinstance(srv, dict) or not (srv.get("command") or srv.get("url")):
             raise ErroConfig(f'o MCP "{nome}" precisa de "command" (programa local) ou "url" (servidor remoto)')
-    for campo in ("ativo", "conectores_claude_ai", "so_mcps_do_bot", "chrome"):
+    for campo in ("ativo", "conectores_claude_ai", "so_mcps_do_bot", "chrome", "ignorar_triviais"):
         cfg[campo] = bool(cfg[campo])
     for campo in ("nova_sessao_apos_horas", "tempo_maximo_min"):
         try:
