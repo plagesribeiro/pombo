@@ -40,6 +40,9 @@ AVISOS = """
 Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (muitas etapas, pesquisa longa, gerar imagem): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Vou olhar isso e te respondo quando terminar."). Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso. Depois do aviso, {usuario} pode mandar outras mensagens: elas são atendidas em paralelo, em outra conversa.
 Subagentes (ferramenta Agent): evite ao máximo. O que dá para você mesmo fazer, faça sem delegar; use um só quando houver trabalho pesado e independente que realmente ganhe com isso. Nunca rode subagente em segundo plano: passe sempre run_in_background: false e espere o resultado neste mesmo pedido (resultado em segundo plano se perde quando o pedido termina). A resposta de cada subagente vai sozinha para {usuario}, com a marca "Subagente respondeu isso"; na resposta final, não repita o relatório dele: só o que faltou e a conclusão."""
 
+MEMORIA = """Memória desta conversa: {arq}
+Leia esse arquivo antes de responder. No fim, se aprendeu algo que vale para as próximas vezes (quem é quem, o tom da conversa, o que foi combinado), atualize o arquivo. Mantenha curto (umas 40 linhas no máximo): corrija e resuma em vez de só acrescentar. Nada de senhas ou dados sensíveis."""
+
 SILENCIO = " Se não houver nada de novo para contar, responda só SEM_NOVIDADE (nada mais), e nada será enviado."
 
 AJUDA = """🤖 **{bot}** · {maquina}
@@ -122,6 +125,18 @@ def apagar(caminho):
 TRIVIAL_MAX = 3      # texto com até isso de caracteres (".", "ok", "👍") não é respondido
 PENDENTE_S = 600     # ... mas vai junto com o próximo pedido de verdade da mesma pessoa, se vier em até 10 min
 PENDENTES_MAX = 5
+
+
+def arquivo_de_memoria(pasta, chat):
+    """memorias/<conversa>.md na pasta do bot. O nome vem do JID (não muda quando o grupo troca de nome)."""
+    nome = re.sub(r"[^a-z0-9]+", "-", str(chat).lower()).strip("-")[:80] or "conversa"
+    return os.path.join(pasta, "memorias", nome + ".md")
+
+
+def regras_de_memoria(arq):
+    """No modo "lista", o agente precisa poder ler e escrever o arquivo de memória (// = caminho absoluto)."""
+    real = os.path.realpath(arq)
+    return [f"Read(/{real})", f"Edit(/{real})", f"Write(/{real})"]
 
 
 def eh_trivial(m):
@@ -664,8 +679,33 @@ class BotRunner:
                     self.rodando.pop(chave, None)
                     self.fila.cond.notify_all()
 
-    def sistema(self):
-        cfg = self.cfg
+    def cfg_da_conversa(self, chat):
+        """A configuração do bot com os ajustes desta conversa (whatsapp.por_conversa), se houver."""
+        f = getattr(self.canal, "ajustes_da_conversa", None)
+        ajustes = f(chat) if f and chat is not None else {}
+        return {**self.cfg, **ajustes} if ajustes else self.cfg
+
+    def preparar_memoria(self, cfg, m):
+        """whatsapp.memoria_por_conversa: o arquivo de memória desta conversa (criado com um cabeçalho), ou ""."""
+        if not (cfg.get("whatsapp") or {}).get("memoria_por_conversa"):
+            return ""
+        pasta = config.pasta_do_bot(cfg)
+        if not os.path.isdir(pasta):
+            return ""
+        arq = arquivo_de_memoria(pasta, m["chat"])
+        try:
+            os.makedirs(os.path.dirname(arq), exist_ok=True)
+            if not os.path.exists(arq):
+                nome = (m.get("nome_conversa") or "").strip()
+                with open(arq, "w", encoding="utf-8") as f:
+                    f.write(f"# Memória da conversa {nome + ' ' if nome else ''}({m['chat']})\n\n")
+        except OSError as e:
+            self.log(f"não consegui criar a memória da conversa ({e})")
+            return ""
+        return arq
+
+    def sistema(self, cfg=None):
+        cfg = cfg or self.cfg
         usuario = (self.geral.get("usuario_nome") or "").strip() or "a pessoa"
         extra = ""
         if cfg.get("instrucoes"):
@@ -680,14 +720,15 @@ class BotRunner:
                               maquina=self.geral["nome_maquina"], pasta=config.pasta_do_bot(cfg), id=self.id,
                               cli=cli_texto(), extra=extra)
 
-    def rodar_agente(self, prompt, sessao, andamento, avisar=None):
+    def rodar_agente(self, prompt, sessao, andamento, avisar=None, cfg=None, permitir=()):
         """Roda o agente. Devolve (resposta, sessao_nova, erro, info). avisar(texto, sessao): chamado a cada linha
-        "AVISO: ..." que o agente escreve no meio do trabalho (os subagentes não contam)."""
-        cfg = self.cfg
+        "AVISO: ..." que o agente escreve no meio do trabalho (os subagentes não contam). cfg: a configuração
+        ajustada para esta conversa ou rotina (padrão: a do bot)."""
+        cfg = cfg or self.cfg
         pasta = config.pasta_do_bot(cfg)
         if not os.path.isdir(pasta):
             return "", sessao, f"a pasta {pasta} não existe", {}
-        cmd, env = motores.comando_claude(cfg, self.geral, self.id, self.sistema(), sessao)
+        cmd, env = motores.comando_claude(cfg, self.geral, self.id, self.sistema(cfg), sessao, permitir)
         n = getattr(self._local, "n", 0)
         arq_erros = config.caminho("logs", self.id + "-agente-erros" + (f"-{n + 1}" if n else "") + ".log")
         info = {"custo_usd": None, "negadas": []}
@@ -832,16 +873,17 @@ class BotRunner:
         self.canal.aviso(dono, aviso)
         return resultado
 
-    def arquivo_liberado(self, caminho):
-        """Da pasta do bot ou dos anexos que ele recebeu (o caminho de verdade, sem atalho para fora)?"""
+    def arquivo_liberado(self, caminho, cfg=None):
+        """Da pasta do bot (ou a desta conversa) ou dos anexos que ele recebeu (o caminho de verdade, sem atalho)?"""
         real = os.path.realpath(caminho)
-        for base in (config.pasta_do_bot(self.cfg), config.caminho("anexos", self.id)):
+        for base in (config.pasta_do_bot(cfg or self.cfg), config.caminho("anexos", self.id)):
             b = os.path.realpath(base)
             if real == b or real.startswith(b.rstrip(os.sep) + os.sep):
                 return True
         return False
 
-    def enviar_resultado(self, chat, resultado, erro, info, sessao, responder_a=None, cabecalho="", restrito=False):
+    def enviar_resultado(self, chat, resultado, erro, info, sessao, responder_a=None, cabecalho="", restrito=False,
+                         cfg=None):
         """restrito: só manda arquivo da pasta do bot (bot com lista de permissões, ou pedido de quem não é o dono).
         Quem manda o arquivo é o Pombo, não o agente: sem isso, uma linha ENVIAR_ARQUIVO pegaria qualquer arquivo
         do computador, mesmo com o agente proibido de ler fora da pasta."""
@@ -858,7 +900,7 @@ class BotRunner:
         for a in arquivos:
             a = os.path.expanduser(a.strip().strip('"'))
             try:
-                if restrito and not self.arquivo_liberado(a):
+                if restrito and not self.arquivo_liberado(a, cfg):
                     self.log(f"arquivo de fora da pasta não enviado: {a}")
                     canal.responder(chat, f"🔒 Não mandei `{os.path.basename(a)}`: este bot só manda arquivos da pasta dele.")
                 elif os.path.isfile(a) and os.path.getsize(a) < canal.limite_arquivo:
@@ -919,6 +961,7 @@ class BotRunner:
         canal = self.canal
         chat, mid = m["chat"], m.get("id")
         anexos = config.caminho("anexos", self.id)
+        cfg = self.cfg_da_conversa(chat)
         usuario = (m.get("nome_de") or self.geral.get("usuario_nome") or "").strip() or "a pessoa"
         partes, extras = [], []
         texto = m.get("texto") or ""
@@ -988,6 +1031,10 @@ class BotRunner:
             prompt = f"Mensagem de {usuario} ({canal.nome}): " + "\n".join(partes or ["(sem texto)"])
             if extras:
                 prompt += "\n\n" + "\n".join(extras)
+            memoria = self.preparar_memoria(cfg, m)
+            if memoria:
+                prompt += "\n\n" + MEMORIA.format(arq=memoria)
+            permitir = regras_de_memoria(memoria) if memoria else ()
 
             if trab is None:
                 sessao, citou = self.sessao_da_mensagem(m)
@@ -1005,10 +1052,12 @@ class BotRunner:
             avisos = Avisos(self, chat, mid)
             if trab is not None:
                 avisos.ao_enviar = lambda: self._soltar(trab)
-            resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento, avisar=avisos)
+            resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento, avisar=avisos, cfg=cfg,
+                                                            permitir=permitir)
             if erro and sessao and not resultado:
                 self.log(f"falha retomando a conversa ({erro}); tentando conversa nova")
-                resultado, nova, erro, info = self.rodar_agente(prompt, None, andamento, avisar=avisos)
+                resultado, nova, erro, info = self.rodar_agente(prompt, None, andamento, avisar=avisos, cfg=cfg,
+                                                                permitir=permitir)
             deu_erro = bool(erro and not resultado)
 
             def atual(d):
@@ -1028,7 +1077,8 @@ class BotRunner:
             self.registrar(inicio, "mensagem", prompt, "(só avisos)", erro, info, nova)
             self.log(f"respondido só com {len(avisos.enviados)} aviso(s)")
             return
-        enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid, restrito=bool(m.get("convidado")))
+        enviado, n_arq = self.enviar_resultado(chat, resultado, erro, info, nova, mid, restrito=bool(m.get("convidado")),
+                                               cfg=cfg)
         self.registrar(inicio, "mensagem", prompt, enviado, erro, info, nova)
         self.log(f"respondido ({len(enviado)} caracteres, {n_arq} arquivos)" + (f"; erro: {erro}" if erro else ""))
 

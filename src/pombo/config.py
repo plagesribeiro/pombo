@@ -91,8 +91,10 @@ WHATSAPP_PADRAO = {
     "conta": "",                    # --account do wacli (para ter mais de um WhatsApp no mesmo computador)
     "pasta_dados": "",              # --store do wacli; vazio = o padrão dele (~/.wacli)
     "meu_numero": True,             # o WhatsApp pareado é o seu número (False: um número só do bot)
-    "conversas": ["eu"],            # "eu", números, JIDs de grupo (...@g.us) ou "privadas", "grupos", "todas"
-    "gatilho": "pombo",             # a mensagem começa com isso ("pombo, ..." ou "@pombo ...")
+    "conversas": ["eu"],            # "eu", números, JIDs de grupo (...@g.us) ou "privadas", "grupos", "todas",
+                                    # "grupos-do-dono" (no número do bot: os grupos em que o dono também está)
+    "gatilho": "pombo",             # a mensagem começa com isso ("pombo, ..." ou "@pombo ..."). No número do bot,
+                                    # vazio = nos grupos, só marcando @ o bot ou respondendo a uma mensagem dele
     "gatilho_sempre": True,         # exige o gatilho também na conversa "eu" e nas privadas do número do bot
     "prefixo": "🐦 ",               # começo de toda resposta (no seu número, é como o Pombo se reconhece)
     "contexto_mensagens": 20,       # quantas mensagens anteriores da conversa vão junto, como contexto (0 = nenhuma)
@@ -102,7 +104,12 @@ WHATSAPP_PADRAO = {
                                     # "nenhuma"; quando a resposta sai, a reação some (deu erro: fica ⚠️)
     "qualquer_pessoa": False,       # nos grupos deste bot, qualquer pessoa que marcar o bot (ou usar o gatilho) é atendida
     "limite_por_pessoa_dia": 0,     # quem não está liberado: até quantas mensagens por dia são respondidas (0 = sem limite)
+    "memoria_por_conversa": False,  # cada conversa ganha um arquivo de memória na pasta do bot (memorias/<conversa>.md)
+    "por_conversa": {},             # conversa (JID de grupo ou número) -> campos do bot que mudam nela (veja POR_CONVERSA)
 }
+
+# o que dá para mudar numa conversa só (whatsapp.por_conversa)
+POR_CONVERSA = ("pasta", "modelo", "esforco", "ferramentas_permitidas", "ferramentas_negadas", "instrucoes")
 
 ROTINA_PADRAO = {
     "id": "",
@@ -118,7 +125,9 @@ ROTINA_PADRAO = {
 
 ID_VALIDO = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 HORA_VALIDA = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
-CURINGAS = ("privadas", "grupos", "todas")  # conversas liberadas por tipo (a pasta padrão), não pelo nome
+# no número do bot: os grupos em que o dono (alguém de usuarios_permitidos) também está
+GRUPOS_DO_DONO = "grupos-do-dono"
+CURINGAS = ("privadas", "grupos", "todas", GRUPOS_DO_DONO)  # conversas liberadas por tipo, não pelo nome
 # no número do bot, com qualquer_pessoa: a conversa direta de quem nenhum outro bot do número atende (o último da fila)
 DESCONHECIDOS = "desconhecidos"
 JID_VALIDO = re.compile(r"^[0-9a-z.:_-]+@(s\.whatsapp\.net|g\.us|lid)$")
@@ -370,7 +379,7 @@ def validar_whatsapp(wa, usuarios):
     for campo in ("wacli", "conta", "pasta_dados", "gatilho", "prefixo", "espaco_entre_envios"):
         if not isinstance(wa[campo], str):
             raise ErroConfig(f"whatsapp.{campo} precisa ser um texto")
-    for campo in ("meu_numero", "gatilho_sempre", "qualquer_pessoa"):
+    for campo in ("meu_numero", "gatilho_sempre", "qualquer_pessoa", "memoria_por_conversa"):
         wa[campo] = bool(wa[campo])
     wa["gatilho"] = wa["gatilho"].strip().lstrip("@").strip()
     if wa["gatilho"] and not re.match(r"^\w[\w-]*$", wa["gatilho"]):
@@ -398,18 +407,16 @@ def validar_whatsapp(wa, usuarios):
     conversas = []
     for c in wa["conversas"]:
         c = str(c).strip().lower()
-        if c == "eu" or c in CURINGAS or c == DESCONHECIDOS:
-            pass
-        elif "@" in c:
-            if not JID_VALIDO.match(c):
-                raise ErroConfig(f'conversa inválida: "{c}" (use "eu", um número, um JID como 1203...@g.us, '
-                                 '"privadas", "grupos" ou "todas")')
-        else:
-            c = normalizar_numero(c)
+        if not (c == "eu" or c in CURINGAS or c == DESCONHECIDOS):
+            c = id_de_conversa(c)
         if c not in conversas:
             conversas.append(c)
     wa["conversas"] = conversas
-    grupos = any(c.endswith("@g.us") for c in conversas) or "grupos" in conversas or "todas" in conversas
+    grupos = any(c.endswith("@g.us") for c in conversas) or bool({"grupos", "todas", GRUPOS_DO_DONO} & set(conversas))
+    if GRUPOS_DO_DONO in conversas and wa["meu_numero"]:
+        raise ErroConfig(f'"{GRUPOS_DO_DONO}" só vale num número só do bot (whatsapp.meu_numero = false): no seu número, '
+                         'você está em todos os seus grupos (use "grupos")')
+    wa["por_conversa"] = validar_por_conversa(wa["por_conversa"])
     if wa["meu_numero"]:
         if not wa["prefixo"].strip():
             raise ErroConfig("whatsapp.prefixo não pode ficar vazio no seu número: é por ele que o Pombo não responde "
@@ -429,17 +436,62 @@ def validar_whatsapp(wa, usuarios):
         if wa["meu_numero"]:
             raise ErroConfig("whatsapp.qualquer_pessoa só vale num número só do bot (whatsapp.meu_numero = false): no seu "
                              "número, outras pessoas estariam mandando mensagens em seu nome")
-        soltas = [c for c in conversas if not c.endswith("@g.us") and c != DESCONHECIDOS]
+        soltas = [c for c in conversas if not c.endswith("@g.us") and c not in (DESCONHECIDOS, GRUPOS_DO_DONO)]
         if soltas:
-            raise ErroConfig("com whatsapp.qualquer_pessoa, o bot só pode escutar grupos escolhidos um a um (JIDs ...@g.us) "
-                             f'e "{DESCONHECIDOS}" (a conversa direta de quem nenhum outro bot atende); tire: {", ".join(soltas)}')
+            raise ErroConfig("com whatsapp.qualquer_pessoa, o bot só pode escutar grupos escolhidos um a um (JIDs ...@g.us), "
+                             f'os grupos em que o dono o colocou ("{GRUPOS_DO_DONO}") e "{DESCONHECIDOS}" (a conversa '
+                             f'direta de quem nenhum outro bot atende); tire: {", ".join(soltas)}')
     elif DESCONHECIDOS in conversas:
         raise ErroConfig(f'"{DESCONHECIDOS}" é para atender qualquer pessoa: ligue whatsapp.qualquer_pessoa (só num número '
                          "do bot, numa pasta isolada)")
-    if (grupos or wa["gatilho_sempre"]) and not wa["gatilho"]:
-        raise ErroConfig("defina whatsapp.gatilho: " + ("em grupo, o bot só responde quando chamado"
-                                                       if grupos else "gatilho_sempre está ligado"))
+    if not wa["gatilho"]:
+        # no número do bot, sem gatilho: nos grupos, só marcando @ o bot ou respondendo a uma mensagem dele
+        if grupos and wa["meu_numero"]:
+            raise ErroConfig("defina whatsapp.gatilho: em grupo, o bot só responde quando chamado")
+        if wa["gatilho_sempre"]:
+            raise ErroConfig("defina whatsapp.gatilho ou desligue whatsapp.gatilho_sempre (sem gatilho, a conversa direta "
+                             "responde a toda mensagem; nos grupos, só marcando @ o bot ou respondendo a ele)")
     return wa
+
+
+def id_de_conversa(c):
+    """Um número ou um JID (...@g.us, ...@s.whatsapp.net, ...@lid), normalizado. Levanta ErroConfig."""
+    c = str(c).strip().lower()
+    if "@" in c:
+        if not JID_VALIDO.match(c):
+            raise ErroConfig(f'conversa inválida: "{c}" (use "eu", um número, um JID como 1203...@g.us, '
+                             f'"privadas", "grupos", "{GRUPOS_DO_DONO}" ou "todas")')
+        return c
+    return normalizar_numero(c)
+
+
+def validar_por_conversa(por):
+    """whatsapp.por_conversa: {"1203...@g.us": {"pasta": "~/trabalho", "modelo": "sonnet"}, "+55 31 9...": {...}}."""
+    if not isinstance(por, dict):
+        raise ErroConfig('whatsapp.por_conversa precisa ser um objeto: {"1203...@g.us": {"pasta": "~/trabalho"}}')
+    limpo = {}
+    for conversa, ajustes in por.items():
+        chave = id_de_conversa(conversa)
+        if not isinstance(ajustes, dict):
+            raise ErroConfig(f'whatsapp.por_conversa["{conversa}"] precisa ser um objeto, como {{"modelo": "sonnet"}}')
+        fora = set(ajustes) - set(POR_CONVERSA)
+        if fora:
+            raise ErroConfig(f'whatsapp.por_conversa["{conversa}"]: não dá para mudar {", ".join(sorted(fora))} por '
+                             f'conversa. Dá para mudar: {", ".join(POR_CONVERSA)}')
+        a = {}
+        for campo, valor in ajustes.items():
+            if campo in ("ferramentas_permitidas", "ferramentas_negadas"):
+                if not isinstance(valor, list) or not all(isinstance(x, str) for x in valor):
+                    raise ErroConfig(f'whatsapp.por_conversa["{conversa}"].{campo} precisa ser uma lista de textos')
+            elif not isinstance(valor, str):
+                raise ErroConfig(f'whatsapp.por_conversa["{conversa}"].{campo} precisa ser um texto')
+            elif campo == "pasta" and not valor.strip():
+                raise ErroConfig(f'whatsapp.por_conversa["{conversa}"].pasta não pode ficar vazia')
+            a[campo] = valor
+        if chave in limpo:
+            raise ErroConfig(f'whatsapp.por_conversa tem a conversa "{chave}" duas vezes')
+        limpo[chave] = a
+    return limpo
 
 
 def validar_rotina(r):
@@ -523,8 +575,9 @@ def conferir_conversas(bot_id, cfg):
         return
     minhas = set(cfg["whatsapp"]["conversas"])
 
-    def cobre(cs):  # "todas" cobre "privadas" e "grupos"
-        return set(cs) | ({"privadas", "grupos"} if "todas" in cs else set())
+    def cobre(cs):  # "todas" cobre "privadas" e "grupos"; "grupos" cobre "grupos-do-dono"
+        cs = set(cs) | ({"privadas", "grupos"} if "todas" in cs else set())
+        return cs | ({GRUPOS_DO_DONO} if "grupos" in cs else set())
     # grupo já ligado pelo nome a um bot de outro computador: é dele (o JID do grupo é o mesmo em qualquer número)
     for maquina, _n, o in bots_de_outros_computadores():
         comum = sorted({c for c in minhas & set((o.get("whatsapp") or {}).get("conversas") or []) if c.endswith("@g.us")})
@@ -548,7 +601,7 @@ def conferir_conversas(bot_id, cfg):
                                  "só. Tire o grupo de lá antes, ou pause aquele bot")
             continue
         comum = sorted((minhas & set(o["whatsapp"]["conversas"])) |
-                       (cobre(minhas) & cobre(o["whatsapp"]["conversas"]) & {"privadas", "grupos"}))
+                       (cobre(minhas) & cobre(o["whatsapp"]["conversas"]) & {"privadas", "grupos", GRUPOS_DO_DONO}))
         if comum:
             nome = ("a conversa com você mesmo" if comum[0] == "eu" else
                     "a conversa direta de quem não está liberado (desconhecidos)" if comum[0] == DESCONHECIDOS else

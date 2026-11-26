@@ -462,7 +462,7 @@ class Paralelos(unittest.TestCase):
         r.estado.atualizar(lambda d: d.update(sessoes={}))
         rodando, maximo = [], [0]
 
-        def agente(prompt, sessao, andamento, avisar=None):
+        def agente(prompt, sessao, andamento, avisar=None, **kw):
             rodando.append(1)
             maximo[0] = max(maximo[0], len(rodando))
             t.sleep(0.5)
@@ -1584,6 +1584,140 @@ class NumeroDoBot(unittest.TestCase):
             with self.assertRaises(config.ErroConfig, msg=wa):
                 config.validar_bot(dict(base, whatsapp=wa))
 
+    def usar(self, **wa):
+        cfg = config.carregar_bot("pombo-zap")
+        cfg["whatsapp"].update(wa)
+        config.salvar_bot("pombo-zap", cfg)
+        self.bot_r.cfg = config.carregar_bot("pombo-zap")
+        return self.bot_r.canal
+
+    def test_sem_gatilho_so_marcando_ou_respondendo(self):
+        self.usar(gatilho="", conversas=["todas"])
+        dono = "553188887777@s.whatsapp.net"
+        self.assertIsNone(self.chegar(self.bot_r, self.dobot, self.grupo, "pombo, oi", de_mim=False, remetente=dono))
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 qual o prazo?", de_mim=False, remetente=dono)
+        self.assertEqual(m["texto"], "qual o prazo?")
+        self.bot_r.canal.anotar_enviada("RESPOSTA1")  # uma mensagem que o bot mandou no grupo
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "e depois?", de_mim=False, remetente=dono, citada="RESPOSTA1")
+        self.assertEqual(m["texto"], "e depois?")
+        # a conversa direta com o bot continua respondendo tudo
+        self.assertEqual(self.chegar(self.bot_r, self.dobot, dono, "oi", de_mim=False)["texto"], "oi")
+        # validação: sem gatilho, gatilho_sempre não faz sentido; no seu número, grupo continua exigindo gatilho
+        base = {"canal": "whatsapp", "pasta": self.dobot}
+        for wa in ({"meu_numero": False, "gatilho": "", "conversas": ["todas"], "prefixo": ""},
+                   {"meu_numero": True, "gatilho": "", "gatilho_sempre": False, "conversas": ["eu", self.grupo]}):
+            with self.assertRaises(config.ErroConfig, msg=wa):
+                config.validar_bot(dict(base, whatsapp=wa))
+
+    def test_grupos_do_dono(self):
+        from unittest import mock
+        c = self.usar(gatilho="", conversas=["grupos-do-dono"])
+        clientes = self.f.grupo(self.dobot, "Clientes", outros=["5531955556666"])  # o dono não está nele
+        self.assertEqual(c.liberacao(self.grupo), ("grupo", True))
+        self.assertEqual(c.liberacao(clientes), (None, False))
+        self.assertEqual(c.liberacao("5531955556666@s.whatsapp.net"), (None, False))  # conversa direta: não
+        guardado = self.bot_r.estado.ler()["whatsapp"]["grupos_do_dono"]
+        self.assertEqual((guardado[self.grupo]["sim"], guardado[clientes]["sim"]), (True, False))
+        # grupo que não é do dono: nem a mensagem é lida (nada de modelo, reação, transcrição ou resposta)
+        mid = self.f.chegar(self.dobot, clientes, "@5531977776666 oi", de_mim=False, remetente="5531955556666@s.whatsapp.net")
+        with mock.patch.object(c.wa, "mensagem") as ler, mock.patch.object(c.wa, "participantes") as part:
+            c.examinar(clientes, mid, self.desde)
+            ler.assert_not_called()
+            part.assert_not_called()  # a resposta guardada vale
+        m = self.chegar(self.bot_r, self.dobot, self.grupo, "@5531977776666 oi", de_mim=False,
+                        remetente="553188887777@s.whatsapp.net")
+        self.assertEqual(m["texto"], "oi")
+        # o grupo ligado pelo nome a outro bot do mesmo número é dele
+        config.salvar_bot("outro", {"canal": "whatsapp", "pasta": self.dobot, "usuarios_permitidos": ["5531988887777"],
+                                    "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=[self.grupo],
+                                                     gatilho="", gatilho_sempre=False, prefixo="")})
+        c._reivindicadas = (0.0, set())
+        self.assertEqual(c.liberacao(self.grupo), (None, False))
+
+    def test_grupos_do_dono_validacao(self):
+        base = {"canal": "whatsapp", "pasta": self.dobot}
+        with self.assertRaises(config.ErroConfig):  # no seu número não faz sentido
+            config.validar_bot(dict(base, whatsapp={"conversas": ["grupos-do-dono"]}))
+        ok = config.validar_bot(dict(base, whatsapp={"meu_numero": False, "conversas": ["grupos-do-dono"],
+                                                     "qualquer_pessoa": True, "gatilho": "", "gatilho_sempre": False,
+                                                     "prefixo": ""}))
+        self.assertEqual(ok["whatsapp"]["conversas"], ["grupos-do-dono"])
+        # no mesmo número, "grupos" (ou "todas") de um bot já cobre os grupos do dono
+        with self.assertRaises(config.ErroConfig):
+            config.salvar_bot("outro", {"canal": "whatsapp", "pasta": self.dobot,
+                                        "whatsapp": dict(self.wa_bot, meu_numero=False, conversas=["grupos-do-dono"],
+                                                         gatilho_sempre=False, prefixo="")})
+
+    def test_por_conversa(self):
+        from unittest import mock
+        from pombo import execucao
+        pasta = tempfile.mkdtemp(prefix="pasta-grupo-")
+        c = self.usar(por_conversa={self.grupo: {"pasta": pasta, "modelo": "sonnet", "instrucoes": "Só do grupo."},
+                                    "+55 31 98888-7777": {"esforco": "low"}})
+        self.assertEqual(c.ajustes_da_conversa(self.grupo.upper())["modelo"], "sonnet")
+        self.assertEqual(c.ajustes_da_conversa("553188887777@s.whatsapp.net"), {"esforco": "low"})  # sem o 9
+        self.assertEqual(c.ajustes_da_conversa("5531955556666@s.whatsapp.net"), {})
+        r = self.bot_r
+        cfg = r.cfg_da_conversa(self.grupo)
+        self.assertEqual((cfg["pasta"], cfg["modelo"], cfg["esforco"]), (pasta, "sonnet", ""))
+        self.assertIn("Só do grupo.", r.sistema(cfg))
+        self.assertIn(pasta, r.sistema(cfg))
+        self.assertIs(r.cfg_da_conversa("5531955556666@s.whatsapp.net"), r.cfg)
+        with mock.patch.object(c, "responder", return_value=[]), \
+                mock.patch.object(c, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente", return_value=("ok", "S1", None, {})) as agente:
+            r.processar_mensagem({"chat": self.grupo, "id": "A1", "de": "5531988887777", "texto": "oi"})
+        self.assertEqual(agente.call_args[1]["cfg"]["pasta"], pasta)
+        # a sessão continua sendo por conversa
+        self.assertEqual(r.estado.ler()["sessoes"][self.grupo]["id"], "S1")
+
+    def test_por_conversa_validacao(self):
+        base = {"canal": "whatsapp", "pasta": self.dobot}
+        ruins = [{"grupo@x": {"pasta": "~"}},                      # JID inválido
+                 {"120363@g.us": {"permissoes": "total"}},          # fora da lista do que muda por conversa
+                 {"120363@g.us": {"ferramentas_permitidas": "Read"}},
+                 {"120363@g.us": {"pasta": " "}},
+                 {"120363@g.us": "sonnet"},
+                 ["120363@g.us"]]
+        for por in ruins:
+            with self.assertRaises(config.ErroConfig, msg=por):
+                config.validar_bot(dict(base, whatsapp={"por_conversa": por}))
+        ok = config.validar_bot(dict(base, whatsapp={"por_conversa": {"+55 (31) 98888-7777": {"modelo": "haiku"},
+                                                                      "120363@G.US": {"ferramentas_negadas": ["Bash"]}}}))
+        self.assertEqual(ok["whatsapp"]["por_conversa"], {"5531988887777": {"modelo": "haiku"},
+                                                          "120363@g.us": {"ferramentas_negadas": ["Bash"]}})
+
+    def test_memoria_por_conversa(self):
+        from unittest import mock
+        from pombo import execucao
+        c = self.usar(memoria_por_conversa=True)
+        r = self.bot_r
+        r.cfg["permissoes"], r.cfg["ferramentas_permitidas"] = "lista", []
+        with mock.patch.object(c, "responder", return_value=[]), \
+                mock.patch.object(c, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente", return_value=("ok", "S1", None, {})) as agente:
+            r.processar_mensagem({"chat": self.grupo, "id": "A1", "de": "5531988887777", "texto": "oi",
+                                  "nome_conversa": "Mestrado"})
+        arq = execucao.arquivo_de_memoria(self.dobot, self.grupo)
+        self.assertEqual(os.path.dirname(arq), os.path.join(self.dobot, "memorias"))
+        self.assertTrue(os.path.basename(arq).startswith(self.grupo.split("@")[0]))
+        with open(arq, encoding="utf-8") as f:
+            self.assertIn("Mestrado", f.read())
+        prompt = agente.call_args[0][0]
+        self.assertIn(arq, prompt)
+        self.assertIn("Leia esse arquivo antes de responder", prompt)
+        permitir = agente.call_args[1]["permitir"]
+        # no modo "lista", mesmo sem nenhuma ferramenta liberada, o arquivo de memória pode ser lido e escrito
+        cmd, _ = motores.comando_claude(r.cfg, config.carregar_geral(), r.id, "SIS", None, permitir)
+        regras = cmd[cmd.index("--allowedTools") + 1:]
+        for ferramenta in ("Read", "Edit", "Write"):
+            self.assertIn(f"{ferramenta}(/{os.path.realpath(arq)})", regras)
+        # o nome do arquivo não depende do nome do grupo, e o JID vira um nome seguro
+        self.assertEqual(execucao.arquivo_de_memoria("/p", "1203@g.us"), os.path.join("/p", "memorias", "1203-g-us.md"))
+        self.assertEqual(execucao.arquivo_de_memoria("/p", "../../x"), os.path.join("/p", "memorias", "x.md"))
+        # desligado: nada de memória
+        c = self.usar(memoria_por_conversa=False)
+        self.assertEqual(r.preparar_memoria(r.cfg, {"chat": "outro@g.us"}), "")
 
 class VariosComputadores(unittest.TestCase):
     """O mesmo número do Pombo pareado em dois computadores: a pasta padrão fica num, e os grupos ligados pelo nome

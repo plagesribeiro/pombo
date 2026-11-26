@@ -371,7 +371,7 @@ function desenharBot() {
 let ZAP = null;       // /api/whatsapp: os números deste computador
 let GRUPOS = {};      // chave do número -> grupos (ou "carregando" / {erro})
 let PAREANDO = null;  // o número sendo pareado agora ({chave} ou {novo})
-const CURINGAS = ["privadas", "grupos", "todas"];
+const CURINGAS = ["privadas", "grupos", "todas", "grupos-do-dono"];
 
 // a mesma chave que o servidor calcula (config.chave_whatsapp): conta|pasta absoluta
 function chaveNum(w) {
@@ -432,7 +432,9 @@ function whatsappHTML(b, c) {
   }
   const chamar = w.meu_numero
     ? `Comece com "${esc(w.gatilho || "pombo")}" (texto ou áudio). Na conversa "Você", ${w.gatilho_sempre ? "também precisa" : "não precisa"}.`
-    : `Nos grupos: marcando @ o número ou começando com "${esc(w.gatilho || "pombo")}" (texto ou áudio). Na conversa direta: ${w.gatilho_sempre ? "começando com o gatilho" : "qualquer mensagem"}.`;
+    : w.gatilho
+      ? `Nos grupos: marcando @ o número, respondendo a uma mensagem dele ou começando com "${esc(w.gatilho)}" (texto ou áudio). Na conversa direta: ${w.gatilho_sempre ? "começando com o gatilho" : "qualquer mensagem"}.`
+      : `Sem gatilho: nos grupos, só marcando @ o número ou respondendo a uma mensagem dele. Na conversa direta: qualquer mensagem.`;
   return `<div class="card">
     <h2>WhatsApp <small>pelo wacli, como aparelho conectado</small></h2>
     <div class="grid2">
@@ -445,7 +447,8 @@ function whatsappHTML(b, c) {
         ${w.meu_numero ? `<label class="tog"><input type="checkbox" data-zap-conv="eu" ${tem("eu") ? "checked" : ""}><span>Conversa com você mesmo ("Você")</span></label>` : ""}
         <label class="tog"><input type="checkbox" data-zap-conv="todas" ${tem("todas") ? "checked" : ""}><span>Pasta padrão: todas as outras conversas<small>Toda conversa e grupo que não for de outro bot.${w.meu_numero ? " Só com o gatilho." : ""}</small></span></label>
         ${tem("todas") ? "" : `<label class="tog"><input type="checkbox" data-zap-conv="privadas" ${tem("privadas") ? "checked" : ""}><span>${w.meu_numero ? "Conversas individuais (com o gatilho)" : "Conversas diretas com este número"}</span></label>
-        <label class="tog"><input type="checkbox" data-zap-conv="grupos" ${tem("grupos") ? "checked" : ""}><span>Grupos que não forem de outro bot</span></label>`}
+        <label class="tog"><input type="checkbox" data-zap-conv="grupos" ${tem("grupos") ? "checked" : ""}><span>Grupos que não forem de outro bot</span></label>
+        ${w.meu_numero || tem("grupos") ? "" : `<label class="tog"><input type="checkbox" data-zap-conv="grupos-do-dono" ${tem("grupos-do-dono") ? "checked" : ""}><span>Grupos em que o dono está<small>Os grupos em que você (ou quem está liberado) colocou este número. Nos outros, ele não lê nada.</small></span></label>`}`}
       </div>
     </div>
     <div class="f"><span class="l" style="font-size:.82rem;color:var(--muted);font-weight:600">Grupos desta pasta</span>
@@ -627,7 +630,7 @@ document.addEventListener("change", ev => {
   w.conversas = w.conversas || [];
   if (el.dataset.zapConv) {
     const v = el.dataset.zapConv;
-    w.conversas = w.conversas.filter(x => x !== v && !(v === "todas" && el.checked && (x === "privadas" || x === "grupos")));
+    w.conversas = w.conversas.filter(x => x !== v && !(el.checked && ((v === "todas" && ["privadas", "grupos", "grupos-do-dono"].includes(x)) || (v === "grupos" && x === "grupos-do-dono"))));
     if (el.checked) w.conversas.push(v);
     desenharBot(); return;
   }

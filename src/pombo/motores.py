@@ -9,8 +9,9 @@ from . import config
 _trava_mcp = threading.Lock()  # dois pedidos do mesmo bot podem começar juntos
 
 
-def comando_claude(cfg, geral, bot_id, sistema, sessao):
-    """Monta o comando e as variáveis de ambiente para um `claude -p` deste bot. O prompt vai pelo stdin."""
+def comando_claude(cfg, geral, bot_id, sistema, sessao, permitir=()):
+    """Monta o comando e as variáveis de ambiente para um `claude -p` deste bot. O prompt vai pelo stdin.
+    permitir: regras que o Pombo libera sempre no modo "lista" (ex.: o arquivo de memória da conversa)."""
     claude = shutil.which(geral.get("claude") or "claude") or geral.get("claude") or "claude"
     cmd = [claude, "-p", "--output-format", "stream-json", "--verbose", "--append-system-prompt", sistema]
     if sessao:
@@ -27,6 +28,8 @@ def comando_claude(cfg, geral, bot_id, sistema, sessao):
             # as fotos e os arquivos que chegam ficam fora da pasta do bot: sem isto, "abra com a ferramenta Read"
             # esbarra na lista (// = caminho absoluto, na regra do Claude Code)
             permitidas.append("Read(/" + os.path.realpath(config.caminho("anexos", bot_id)) + "/**)")
+        permitidas += [p for p in permitir if p not in permitidas]
+        if permitidas:
             cmd += ["--allowedTools", *permitidas]
     if cfg["ferramentas_negadas"]:
         cmd += ["--disallowedTools", *cfg["ferramentas_negadas"]]

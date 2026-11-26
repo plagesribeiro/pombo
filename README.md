@@ -265,10 +265,21 @@ pombo bots criar obra-zap --pasta ~/obra --canal whatsapp --numero pombo --numer
 pombo whatsapp grupo ligar --bot obra-zap --nome "Obra" --so-o-grupo  # uma pasta para um grupo
 ```
 
-- **Nos grupos**, ele responde quando você o marca (**@Pombo**) ou começa com "pombo, ..." (texto ou áudio). Na
-  **conversa direta** com ele, responde tudo.
+- **Nos grupos**, ele responde quando você o marca (**@Pombo**), responde (cita) uma mensagem dele ou começa com
+  "pombo, ..." (texto ou áudio). Na **conversa direta** com ele, responde tudo. Para ele só atender quando marcado ou
+  citado, sem palavra: `whatsapp.gatilho=""` e `whatsapp.gatilho_sempre=false`.
+- **Só nos grupos em que você o colocou:** em `conversas`, `grupos-do-dono` vale para os grupos em que o dono (alguém
+  de `usuarios_permitidos`) também está. Nos outros, ele não lê nada: nem responde, nem reage, nem transcreve. Limite: o
+  `wacli` não guarda quem adicionou o número a um grupo, então o que conta é o dono estar no grupo (se você sair, o bot
+  para de atender lá em até uma hora). Um grupo ligado pelo nome a outro bot continua sendo dele.
 - **Uma pasta por grupo:** o bot ligado a um grupo pelo nome atende lá; o bot com `todas` (a pasta padrão) atende nos
   outros grupos e na conversa direta. Tudo isso dá para escolher no painel, com a lista de grupos do número.
+- **Ajustes por conversa:** `whatsapp.por_conversa` muda alguns campos do bot numa conversa só (`pasta`, `modelo`,
+  `esforco`, `ferramentas_permitidas`, `ferramentas_negadas`, `instrucoes`), pelo JID do grupo ou pelo número:
+  `pombo bots editar pombo-zap 'whatsapp.por_conversa={"1203...@g.us": {"pasta": "~/obra", "modelo": "sonnet"}}'`.
+- **Memória por conversa:** com `whatsapp.memoria_por_conversa=true`, cada conversa ganha um arquivo
+  `memorias/<conversa>.md` na pasta do bot, que o Claude lê antes de responder e atualiza depois (quem é quem, o tom do
+  grupo, o que foi combinado). Com `permissoes: "lista"`, o Pombo libera só esse arquivo para ele ler e escrever.
 - **Onde o número do Pombo está, o bot do seu número sai da frente** (nem o "pombo, ..." vai para ele ali), para não
   responder em dobro.
 - **Grupo aberto:** com `whatsapp.qualquer_pessoa=true`, qualquer pessoa de um grupo escolhido que marcar o Pombo é

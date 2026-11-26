@@ -47,6 +47,10 @@ ARQUIVOS = ("video", "document", "gif", "ptv")  # o resto (localização, contat
 COMANDOS = {"/novo", "/parar", "/status", "/rotinas", "/rodar", "/atualizar", "/ajuda", "/help", "/start"}
 MAX_IDADE_S = 24 * 3600
 CACHE_GRUPO_S = 60  # como o Telegram: mensagem com mais de um dia (computador desligado) não é respondida
+# grupos-do-dono: quanto tempo vale a resposta guardada (o dono está no grupo?). O "não" vale pouco: o wacli pode
+# ainda não ter a lista de quem está num grupo em que o bot acabou de entrar
+DONO_NO_GRUPO_SIM_S = 3600
+DONO_NO_GRUPO_NAO_S = 120
 MAX_VISTAS = 2000
 MAX_ENVIADAS = 1000
 MAX_TRANSCRICOES = 300  # áudios transcritos guardados (o histórico mostra o texto em vez de só "[áudio]")
@@ -1085,6 +1089,21 @@ class CanalWhatsApp:
     def tirar_gatilho(self, texto):
         return tirar_gatilho(texto, self.cfg().get("gatilho") or "")
 
+    def ajustes_da_conversa(self, chat):
+        """whatsapp.por_conversa: os campos do bot que mudam nesta conversa (pelo JID ou pelo número, com e sem o 9)."""
+        por = self.cfg().get("por_conversa") or {}
+        c = str(chat or "").lower()
+        if not por or not c:
+            return {}
+        if c in por:
+            return por[c]
+        if tipo_de_conversa(c) == "privada":
+            vs = variantes(numero(c))
+            for k, v in por.items():
+                if k.isdigit() and variantes(k) & vs:
+                    return v
+        return {}
+
     # ---- estado (o que já vi e o que eu mesmo mandei)
 
     def _est(self, d):
@@ -1316,6 +1335,34 @@ class CanalWhatsApp:
         self._grupos_meus[grupo] = (agora, sozinho)
         return sozinho
 
+    def grupo_do_dono(self, grupo):
+        """grupos-do-dono: o dono (alguém de usuarios_permitidos) está neste grupo? O wacli não guarda quem pôs o
+        número do bot no grupo (a mensagem de sistema "fulano adicionou" não chega ao banco), então vale o dono estar
+        entre os participantes. A resposta fica no estado do bot (estado/<id>.json, whatsapp.grupos_do_dono)."""
+        agora = time.time()
+        guardado = ((self.r.estado.ler().get("whatsapp") or {}).get("grupos_do_dono") or {}).get(grupo) or {}
+        validade = DONO_NO_GRUPO_SIM_S if guardado.get("sim") else DONO_NO_GRUPO_NAO_S
+        if guardado and agora - guardado.get("quando", 0) < validade:
+            return bool(guardado.get("sim"))
+        try:
+            jids = [p.get("user_jid") or p.get("UserJID") or "" for p in self.wa.participantes(grupo) if isinstance(p, dict)]
+        except ErroWhatsApp as e:
+            self.r.log(f"não consegui ver quem está no grupo {grupo} ({e}): fica de fora por enquanto")
+            return bool(guardado.get("sim"))
+        sim = any(j and not self._sou_eu(j) and self.liberado(j) for j in jids)
+        if sim != bool(guardado.get("sim")) or not guardado:
+            self.r.log(f"grupo {grupo}: " + ("o dono está nele, o bot atende (grupos-do-dono)" if sim else
+                                             "o dono não está nele, o bot ignora (grupos-do-dono)"))
+
+        def anotar(d):
+            g = self._est(d).setdefault("grupos_do_dono", {})
+            g.pop(grupo, None)
+            g[grupo] = {"sim": sim, "quando": agora}
+            for k in list(g)[:-500]:
+                g.pop(k, None)
+        self.r.estado.atualizar(anotar)
+        return sim
+
     def conversa_liberada(self, chat):
         return self.liberacao(chat)[0]
 
@@ -1341,6 +1388,8 @@ class CanalWhatsApp:
             return tipo, True  # o último da fila: ninguém mais deste número atende esta pessoa
         curinga = "todas" in conversas or (tipo == "privada" and "privadas" in conversas) or \
             (tipo == "grupo" and "grupos" in conversas)
+        if not curinga and tipo == "grupo" and config.GRUPOS_DO_DONO in conversas and not self._de_outro_bot(chat):
+            curinga = self.grupo_do_dono(chat)  # grupo de outro bot nem pergunta ao wacli
         if curinga and not self._de_outro_bot(chat):
             if self._padrao_de_outro_computador(tipo):
                 return None, False
@@ -1374,7 +1423,8 @@ class CanalWhatsApp:
         meu_nome = (self.r.geral.get("nome_maquina") or "").casefold()
         for maquina, n, o in config.bots_de_outros_computadores():
             conv = (o.get("whatsapp") or {}).get("conversas") or []
-            cobre = "todas" in conv or (tipo == "privada" and "privadas" in conv) or (tipo == "grupo" and "grupos" in conv)
+            cobre = "todas" in conv or (tipo == "privada" and "privadas" in conv) or \
+                (tipo == "grupo" and ("grupos" in conv or config.GRUPOS_DO_DONO in conv))
             if not cobre or not self._mesmo_numero(n):
                 continue
             aviso = (f'o computador "{maquina}" também é a pasta padrão deste número (bot "{o.get("id")}"): '
@@ -1434,8 +1484,9 @@ class CanalWhatsApp:
                 continue
             for b in bots:
                 conv = b["whatsapp"]["conversas"]
-                cobre = chat.lower() in conv or "todas" in conv or \
-                    (tipo == "privada" and "privadas" in conv) or (tipo == "grupo" and "grupos" in conv)
+                # grupos-do-dono: você (o dono desse bot, veja _me_atende) está no grupo, já que ele chegou aqui
+                cobre = chat.lower() in conv or "todas" in conv or (tipo == "privada" and "privadas" in conv) or \
+                    (tipo == "grupo" and ("grupos" in conv or config.GRUPOS_DO_DONO in conv))
                 if cobre and self._me_atende(b):
                     return True
         return False
@@ -1659,7 +1710,8 @@ class CanalWhatsApp:
         msg = {"chat": chat, "id": mid, "de": de, "nome_de": nome or None, "texto": texto, "so_chamou": so_chamou,
                "chamou": achou,
                "pode_comando": pode_comando, "audio": None, "fotos": [], "arquivos": [], "citada": {},
-               "exigir_gatilho": exigir_gatilho_no_audio, "convidado": convidado}
+               "exigir_gatilho": exigir_gatilho_no_audio, "convidado": convidado,
+               "nome_conversa": m.get("ChatName") or ""}
         anexo = (chat, mid)
         if midia == "audio":
             msg["audio"] = anexo
