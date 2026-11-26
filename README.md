@@ -343,6 +343,12 @@ pombo rotinas criar pessoal --nome "Agenda do dia" --horarios 08:30 --dias seg,t
 - **Tolerância:** se o computador estava dormindo no horário, a rotina ainda roda se ele acordar em até 90 minutos
   (ajustável). Depois disso, ela pula aquele horário e avisa no log.
 - **Rodar agora:** botão no painel, `/rodar N` no Telegram ou `pombo rotinas rodar pessoal agenda-do-dia`.
+- **Checar antes (`checar`):** um comando que roda antes do Claude, na pasta do bot, por até 60 s. Se ele sair com 0 e
+  escrever algo, o Claude roda e recebe o texto como "Novidades encontradas pelo checador"; se sair com 0 sem escrever
+  nada (ou com 1), a rotina não roda naquela vez (fica só no log, sem gastar o modelo); qualquer outro erro, ela roda
+  normalmente. Rodar agora roda mesmo sem novidade.
+  `pombo rotinas editar pessoal emails 'checar=["./tem-email-novo.sh"]'`
+- **Modelo da rotina:** `modelo` e `esforco` valem só para ela (ex.: `modelo=haiku` numa checagem simples).
 
 ## Permissões e segurança
 

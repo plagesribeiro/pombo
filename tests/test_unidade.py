@@ -1863,3 +1863,65 @@ class VariosComputadores(unittest.TestCase):
             config.validar_outros_computadores(["https://mac:10004/api"])
         self.assertEqual(config.validar_outros_computadores("https://a:1/ https://a:1"), ["https://a:1"])
 
+
+
+class ChecarRotina(unittest.TestCase):
+    """O `checar` de uma rotina decide se o agente roda (e com quais novidades); a rotina pode ter outro modelo."""
+
+    def test_interpretar(self):
+        self.assertEqual(rotinas.interpretar_checagem(0, " 2 e-mails novos\n"), ("novidades", "2 e-mails novos"))
+        self.assertEqual(rotinas.interpretar_checagem(0, "  \n")[0], "pular")
+        self.assertEqual(rotinas.interpretar_checagem(1, "qualquer coisa")[0], "pular")
+        self.assertEqual(rotinas.interpretar_checagem(2, "erro de rede")[0], "erro")
+        self.assertEqual(rotinas.interpretar_checagem(None, "passou de 60 s")[0], "erro")
+
+    def test_rodar_checador(self):
+        from pombo import execucao
+        pasta = tempfile.mkdtemp()
+        config.gravar_json(os.path.join(pasta, "marca.txt"), "novidade")
+        self.assertEqual(execucao.rodar_checador(["cat", "marca.txt"], pasta), (0, '"novidade"\n'))  # roda na pasta do bot
+        self.assertEqual(execucao.rodar_checador(["sh", "-c", "exit 1"], pasta)[0], 1)
+        self.assertEqual(execucao.rodar_checador(["sh", "-c", "echo ruim >&2; exit 3"], pasta), (3, "ruim"))
+        self.assertEqual(execucao.rodar_checador(["sleep", "5"], pasta, timeout=0.2), (None, "passou de 0.2 s"))
+        self.assertIsNone(execucao.rodar_checador(["/nao/existe"], pasta)[0])
+
+    def test_validacao(self):
+        r = config.validar_rotina({"nome": "x", "prompt": "p", "checar": ["./checar.sh", " "], "modelo": " haiku "})
+        self.assertEqual((r["checar"], r["modelo"], r["esforco"]), (["./checar.sh"], "haiku", ""))
+        for ruim in ({"checar": "./checar.sh"}, {"checar": [1]}, {"modelo": 3}):
+            with self.assertRaises(config.ErroConfig, msg=ruim):
+                config.validar_rotina({"nome": "x", "prompt": "p", **ruim})
+        self.assertEqual(config.validar_rotina({"nome": "x", "prompt": "p"})["checar"], [])
+
+    def test_processar_rotina(self):
+        from unittest import mock
+        from pombo import execucao
+        pasta = tempfile.mkdtemp()
+        cfg = config.validar_bot({"pasta": pasta, "usuarios_permitidos": [7], "modelo": "opus", "rotinas": [
+            {"id": "email", "nome": "E-mail", "horarios": ["08:00"], "prompt": "resuma",
+             "checar": ["sh", "-c", "cat novidades.txt"], "modelo": "haiku"}]})
+        r = execucao.BotRunner("checar", cfg, config.carregar_geral(), "t")
+        with mock.patch.object(r.canal, "responder", return_value=[]), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()), \
+                mock.patch.object(r, "rodar_agente", return_value=("ok", "S1", None, {})) as agente:
+            r.processar_rotina("email")  # sem o arquivo: o cat falha com código 1 e a rotina não roda
+            agente.assert_not_called()
+            escrever(os.path.join(pasta, "novidades.txt"), "")  # saída vazia: também não roda
+            r.processar_rotina("email")
+            agente.assert_not_called()
+            r.processar_rotina("email", manual=True)  # pedida agora: roda assim mesmo
+            self.assertEqual(agente.call_count, 1)
+            self.assertNotIn("Novidades encontradas", agente.call_args[0][0])
+            escrever(os.path.join(pasta, "novidades.txt"), "Ana mandou o contrato")
+            r.processar_rotina("email")
+            prompt = agente.call_args[0][0]
+            self.assertIn("Novidades encontradas pelo checador:\nAna mandou o contrato", prompt)
+            self.assertEqual(agente.call_args[1]["cfg"]["modelo"], "haiku")  # o modelo da rotina
+            r.cfg["rotinas"][0]["checar"] = ["sh", "-c", "exit 7"]  # erro do checador: roda normalmente
+            r.processar_rotina("email")
+            self.assertEqual(agente.call_count, 3)
+
+
+def escrever(arq, texto):
+    with open(arq, "w", encoding="utf-8") as f:
+        f.write(texto)

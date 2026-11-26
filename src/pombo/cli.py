@@ -222,6 +222,8 @@ def cmd_rotinas(a):
             print(f"- {r['id']}: {r['nome']}  [{rotinas.descrever_agenda(r)}]{'' if r['ativa'] else ' (pausada)'}"
                   f"  última: {e.get('ultima_execucao') or 'nunca'}")
             print(f"    {r['prompt'][:160]}")
+            if r.get("checar"):
+                print(f"    checar antes: {' '.join(r['checar'])}")
         return
     if acao == "criar":
         if not a.prompt:

@@ -17,7 +17,7 @@ import traceback
 import urllib.parse
 
 from . import config, motores, registro
-from .rotinas import descrever_agenda
+from .rotinas import descrever_agenda, interpretar_checagem
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(RAIZ, "pombo")
@@ -39,6 +39,10 @@ O que você responder no fim vai para {usuario} no {canal}.{silencio}"""
 AVISOS = """
 Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (muitas etapas, pesquisa longa, gerar imagem): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Vou olhar isso e te respondo quando terminar."). Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso. Depois do aviso, {usuario} pode mandar outras mensagens: elas são atendidas em paralelo, em outra conversa.
 Subagentes (ferramenta Agent): evite ao máximo. O que dá para você mesmo fazer, faça sem delegar; use um só quando houver trabalho pesado e independente que realmente ganhe com isso. Nunca rode subagente em segundo plano: passe sempre run_in_background: false e espere o resultado neste mesmo pedido (resultado em segundo plano se perde quando o pedido termina). A resposta de cada subagente vai sozinha para {usuario}, com a marca "Subagente respondeu isso"; na resposta final, não repita o relatório dele: só o que faltou e a conclusão."""
+
+NOVIDADES = "\n\nNovidades encontradas pelo checador:\n{novidades}"
+CHECAR_S = 60            # tempo máximo do comando `checar` de uma rotina
+NOVIDADES_MAX = 20000    # o que o checador escreve vai cortado nesse tamanho
 
 MEMORIA = """Memória desta conversa: {arq}
 Leia esse arquivo antes de responder. No fim, se aprendeu algo que vale para as próximas vezes (quem é quem, o tom da conversa, o que foi combinado), atualize o arquivo. Mantenha curto (umas 40 linhas no máximo): corrija e resuma em vez de só acrescentar. Nada de senhas ou dados sensíveis."""
@@ -137,6 +141,21 @@ def regras_de_memoria(arq):
     """No modo "lista", o agente precisa poder ler e escrever o arquivo de memória (// = caminho absoluto)."""
     real = os.path.realpath(arq)
     return [f"Read(/{real})", f"Edit(/{real})", f"Write(/{real})"]
+
+
+def rodar_checador(cmd, pasta, timeout=CHECAR_S):
+    """Roda o `checar` de uma rotina na pasta do bot. Devolve (código, saída); (None, motivo) se nem rodou."""
+    cmd = [os.path.expanduser(c) for c in cmd]
+    try:
+        r = subprocess.run(cmd, cwd=pasta, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, f"passou de {timeout} s"
+    except OSError as e:
+        return None, str(e)
+    if r.returncode not in (0, 1) and r.stderr.strip():
+        return r.returncode, r.stderr.strip()[-300:]
+    return r.returncode, r.stdout
 
 
 def eh_trivial(m):
@@ -1094,8 +1113,23 @@ class BotRunner:
             return
         usuario = (self.geral.get("usuario_nome") or "").strip() or "a pessoa"
         quando = "rodada pedida agora" if manual else f"horário das {dt.datetime.now():%H:%M}"
-        prompt = ROTINA.format(nome=r["nome"], quando=quando, prompt=r["prompt"].strip(), usuario=usuario,
-                               canal=self.canal.nome, silencio=SILENCIO if r["silenciosa"] else "")
+        novidades = None
+        if r.get("checar"):
+            acao, texto = interpretar_checagem(*rodar_checador(r["checar"], config.pasta_do_bot(self.cfg)))
+            if acao == "pular" and not manual:
+                self.log(f'rotina "{r["nome"]}" não rodou: {texto}')
+                return
+            if acao == "novidades":
+                novidades = texto[:NOVIDADES_MAX]
+            else:
+                self.log(f'rotina "{r["nome"]}": {texto}' + ("; rodando assim mesmo" if acao == "erro" else
+                                                             "; rodando porque foi pedida agora"))
+        prompt = ROTINA.format(nome=r["nome"], quando=quando,
+                               prompt=r["prompt"].strip() + (NOVIDADES.format(novidades=novidades) if novidades else ""),
+                               usuario=usuario, canal=self.canal.nome, silencio=SILENCIO if r["silenciosa"] else "")
+        cfg = self.cfg
+        if r.get("modelo") or r.get("esforco"):
+            cfg = dict(cfg, modelo=r.get("modelo") or cfg.get("modelo"), esforco=r.get("esforco") or cfg.get("esforco"))
         sessao = None
         if r["conversa"] == "continuar":
             sessao = ((self.estado.ler().get("rotinas") or {}).get(rid) or {}).get("sessao")
@@ -1103,7 +1137,7 @@ class BotRunner:
         andamento = SemAndamento() if r["silenciosa"] else self.canal.andamento(
             chat, None, inicio=f"⏰ {r['nome']}: começando…", prefixo=f"⏰ {r['nome']}: ")
         try:
-            resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento)
+            resultado, nova, erro, info = self.rodar_agente(prompt, sessao, andamento, cfg=cfg)
         finally:
             andamento.fim()
 

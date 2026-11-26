@@ -63,3 +63,20 @@ def descrever_agenda(rotina):
     if dias and len(dias) < 7:
         quando += " (" + ", ".join(dias) + ")"
     return quando
+
+
+def interpretar_checagem(codigo, saida):
+    """O que fazer com o resultado do `checar` de uma rotina. codigo None = nem rodou (saida diz o motivo).
+
+    Devolve (acao, texto): ("novidades", o que ele achou) roda o agente com isso; ("pular", motivo) não roda nesta vez;
+    ("erro", motivo) roda o agente normalmente (melhor rodar à toa do que perder alguma coisa).
+    """
+    if codigo is None:
+        return "erro", f"o checador não rodou ({saida})"
+    if codigo == 0 and (saida or "").strip():
+        return "novidades", saida.strip()
+    if codigo == 0:
+        return "pular", "o checador não achou nada (saída vazia)"
+    if codigo == 1:
+        return "pular", "o checador disse que não há nada (código 1)"
+    return "erro", f"o checador falhou (código {codigo}{': ' + saida.strip()[-200:] if (saida or '').strip() else ''})"

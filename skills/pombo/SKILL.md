@@ -169,6 +169,8 @@ Dois jeitos (`whatsapp.meu_numero`):
 | `conversa` | `nova` (cada rodada do zero) ou `continuar` (retoma a conversa da rodada anterior) |
 | `silenciosa` | `true`: se não houver novidade, o agente responde `SEM_NOVIDADE` e nada é enviado |
 | `tolerancia_min` | se o computador estava dormindo no horário, ainda roda até X min depois (padrão 90) |
+| `checar` | comando (lista, ex.: `["./checar-email.sh"]`) que roda antes, na pasta do bot, por até 60 s. Saída 0 com texto: o agente roda e recebe o texto como "Novidades encontradas pelo checador:". Saída 0 sem texto ou código 1: a rotina não roda nessa vez (só fica no log; economiza o modelo). Outro erro: roda normalmente. Rodar agora (`/rodar`, painel) roda mesmo sem novidade |
+| `modelo`, `esforco` | o modelo e o esforço só desta rotina (vazio = os do bot). Ex.: `haiku` para uma checagem barata |
 
 Responder (citar) a mensagem de uma rotina continua a conversa daquela rodada. Mensagem sem citar continua a conversa
 normal do chat: a rotina não toma o lugar dela.

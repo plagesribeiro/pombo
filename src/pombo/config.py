@@ -121,6 +121,11 @@ ROTINA_PADRAO = {
     "conversa": "nova",
     "silenciosa": False,
     "tolerancia_min": 90,
+    # comando que roda antes (na pasta do bot, até 60 s): saída 0 com texto = roda o agente com esse texto; saída 0
+    # sem texto ou saída 1 = não roda nesta vez; outro erro = roda normalmente
+    "checar": [],
+    "modelo": "",                   # vazio = o do bot
+    "esforco": "",                  # vazio = o do bot
 }
 
 ID_VALIDO = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
@@ -533,6 +538,14 @@ def validar_rotina(r):
         r["tolerancia_min"] = int(r["tolerancia_min"])
     except (TypeError, ValueError):
         raise ErroConfig("tolerancia_min precisa ser um número de minutos")
+    if not isinstance(r["checar"], list) or not all(isinstance(x, str) for x in r["checar"]):
+        raise ErroConfig(f'checar, na rotina "{r["nome"]}", precisa ser um comando em lista de textos, como '
+                         '["./checar-email.sh"] ou ["python3", "checar.py"] (lista vazia = sem checagem)')
+    r["checar"] = [x for x in r["checar"] if x.strip()]
+    for campo in ("modelo", "esforco"):
+        if not isinstance(r[campo], str):
+            raise ErroConfig(f'{campo}, na rotina "{r["nome"]}", precisa ser um texto (vazio = o do bot)')
+        r[campo] = r[campo].strip()
     return r
 
 
