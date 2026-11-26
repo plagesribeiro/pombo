@@ -37,7 +37,8 @@ ROTINA = """[Rotina agendada "{nome}" ({quando})]
 O que você responder no fim vai para {usuario} no {canal}.{silencio}"""
 
 AVISOS = """
-Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (gerar imagem, pesquisa longa, muitas etapas): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Pedi a um subagente para gerar a imagem; quando ele terminar eu te mando.") e, de preferência, delegue o trabalho pesado a um subagente (ferramenta Agent), dizendo isso no aviso. Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso. Depois do aviso, {usuario} pode mandar outras mensagens: elas são atendidas em paralelo, em outra conversa."""
+Pedido rápido: responda numa mensagem só, no fim. Pedido demorado (muitas etapas, pesquisa longa, gerar imagem): antes de começar, mande um aviso curto numa linha sozinha começando com "AVISO:" (ex.: "AVISO: Vou olhar isso e te respondo quando terminar."). Cada linha AVISO: vai na hora para {usuario}, como resposta à mensagem dele, enquanto você continua trabalhando: no máximo {n} por pedido, com pelo menos {intervalo} s entre eles (os de mais são descartados). Depois, a resposta final vem normal, sem repetir o aviso. Depois do aviso, {usuario} pode mandar outras mensagens: elas são atendidas em paralelo, em outra conversa.
+Subagentes (ferramenta Agent): evite ao máximo. O que dá para você mesmo fazer, faça sem delegar; use um só quando houver trabalho pesado e independente que realmente ganhe com isso. Nunca rode subagente em segundo plano: passe sempre run_in_background: false e espere o resultado neste mesmo pedido (resultado em segundo plano se perde quando o pedido termina). A resposta de cada subagente vai sozinha para {usuario}, com a marca "Subagente respondeu isso"; na resposta final, não repita o relatório dele: só o que faltou e a conclusão."""
 
 SILENCIO = " Se não houver nada de novo para contar, responda só SEM_NOVIDADE (nada mais), e nada será enviado."
 
@@ -147,6 +148,36 @@ def tirar_avisos(texto, enviados):
     return re.sub(r"\n{3,}", "\n\n", LINHA_AVISO.sub(troca, texto or "")).strip()
 
 
+SUBAGENTE_MAX = 3500
+
+
+def _texto_de(conteudo):
+    if isinstance(conteudo, str):
+        return conteudo
+    return "\n".join(x.get("text", "") for x in conteudo or [] if isinstance(x, dict) and x.get("type") == "text")
+
+
+def respostas_de_subagentes(evento, subagentes):
+    """O que os subagentes devolveram ao agente principal neste evento "user": o resultado de um Agent que rodou
+    esperando (o de segundo plano só devolve "lançado") e o <result> de uma notificação de subagente que terminou."""
+    saida = []
+    conteudo = (evento.get("message") or {}).get("content")
+    for c in conteudo if isinstance(conteudo, list) else [{"type": "text", "text": conteudo or ""}]:
+        if not isinstance(c, dict):
+            continue
+        if c.get("type") == "tool_result" and c.get("tool_use_id") in subagentes:
+            if subagentes.pop(c["tool_use_id"]) or c.get("is_error"):
+                continue
+            t = re.sub(r"(?s)\n*agentId:.*$", "", _texto_de(c.get("content"))).strip()
+            if t and not t.lower().startswith("async agent launched"):
+                saida.append(t)
+        elif c.get("type") == "text" and "<task-notification>" in (c.get("text") or ""):
+            for r in re.findall(r"(?s)<result>(.*?)</result>", c["text"]):
+                if r.strip():
+                    saida.append(r.strip())
+    return [t if len(t) <= SUBAGENTE_MAX else t[:SUBAGENTE_MAX].rstrip() + "…" for t in saida]
+
+
 class Avisos:
     """Manda os avisos do agente no meio do trabalho, citando a mensagem do pedido: no máximo avisos_max por pedido e
     um a cada avisos_intervalo_s (os de mais vão para o log). Responder a um aviso continua a conversa do pedido."""
@@ -176,6 +207,22 @@ class Avisos:
         self.enviados.append(texto)
         self.ultimo = time.time()
         self.r.log(f"aviso mandado ({len(self.enviados)}/{cfg.get('avisos_max')}): {texto[:80]!r}")
+        if sessao:
+            self.r.guardar_mensagens(self.chat, ids, sessao)
+        if self.ao_enviar:
+            self.ao_enviar()
+
+    def subagente(self, texto, sessao=None):
+        """A resposta de um subagente vai na hora, com a marca, fora do limite de avisos (o pedido pode cair por
+        tempo depois, e o trabalho do subagente não se perde)."""
+        canal = self.r.canal
+        enviar = getattr(canal, "intermediaria", None) or canal.responder
+        try:
+            ids = enviar(self.chat, "🤖 Subagente respondeu isso:\n\n" + texto, self.mid) or []
+        except Exception as e:
+            self.r.log(f"resposta do subagente não foi: {e}")
+            return
+        self.r.log(f"resposta do subagente mandada ({len(texto)} caracteres)")
         if sessao:
             self.r.guardar_mensagens(self.chat, ids, sessao)
         if self.ao_enviar:
@@ -654,6 +701,7 @@ class BotRunner:
             limite = threading.Timer(cfg["tempo_maximo_min"] * 60, lambda: self._matar(proc))
             limite.start()
             resultado, nova, ultimo_texto, erro = None, sessao, "", None
+            subagentes = {}  # id do tool_use do Agent (do agente principal) -> roda em segundo plano?
             try:
                 proc.stdin.write(prompt)
                 proc.stdin.close()
@@ -668,6 +716,8 @@ class BotRunner:
                         for c in (d.get("message") or {}).get("content", []):
                             if c.get("type") == "tool_use":
                                 andamento.mostrar(descrever(c.get("name", ""), c.get("input") or {}))
+                                if do_agente and c.get("name") in ("Agent", "Task"):
+                                    subagentes[c.get("id")] = bool((c.get("input") or {}).get("run_in_background"))
                             elif c.get("type") == "text" and c.get("text", "").strip():
                                 if do_agente:
                                     ultimo_texto = c["text"].strip()
@@ -675,6 +725,11 @@ class BotRunner:
                                         for aviso in achar_avisos(ultimo_texto):
                                             avisar(aviso, nova)
                                 andamento.mostrar("💭 " + c["text"].strip().splitlines()[0][:200])
+                    elif d.get("type") == "user" and not d.get("parent_tool_use_id") and avisar:
+                        for texto in respostas_de_subagentes(d, subagentes):
+                            sub = getattr(avisar, "subagente", None)
+                            if sub:
+                                sub(texto, nova)
                     elif d.get("type") == "result":
                         resultado = d.get("result") or ultimo_texto
                         info["custo_usd"] = d.get("total_cost_usd")

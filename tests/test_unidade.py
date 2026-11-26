@@ -326,6 +326,24 @@ class Avisos(unittest.TestCase):
                                     ("Pronto, aqui está a imagem.", 99)])  # os dois citam o pedido
         self.assertEqual(r.estado.ler()["mensagens"].get("7:1"), "S1")  # responder ao aviso continua a conversa
 
+    def test_resposta_do_subagente_vai_com_a_marca(self):
+        from unittest import mock
+        from pombo import execucao
+        uso = lambda i, bg=False: {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": i, "name": "Agent", "input": {"prompt": "x", "run_in_background": bg}}]}}
+        volta = lambda i, t: {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": i, "content": [{"type": "text", "text": t}]}]}}
+        eventos = [{"type": "system", "subtype": "init", "session_id": "S3"},
+                   uso("t1"), volta("t1", "Limpei 75 itens.\nagentId: abc"),
+                   uso("t2", bg=True), volta("t2", "Async agent launched successfully."),
+                   {"type": "result", "session_id": "S3", "result": "Pronto."}]
+        r = self.runner(eventos)
+        enviados = []
+        with mock.patch.object(r.canal, "responder", side_effect=lambda c, t, a=None, **k: enviados.append(t) or []), \
+                mock.patch.object(r.canal, "andamento", return_value=execucao.SemAndamento()):
+            r.processar_mensagem({"chat": 7, "id": 5, "de": 7, "texto": "limpa"})
+        self.assertEqual(enviados, ["🤖 Subagente respondeu isso:\n\nLimpei 75 itens.", "Pronto."])
+
     def test_no_maximo_avisos_max(self):
         from unittest import mock
         from pombo import execucao
